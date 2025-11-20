@@ -1,23 +1,49 @@
 <script setup>
-defineProps({
-  jobs: Array,
+import { computed, ref } from 'vue'
+
+const props = defineProps({
+  jobs: {
+    type: Array,
+    default: () => [],
+  },
+})
+
+const search = ref('')
+
+const filteredJobs = computed(() => {
+  const term = search.value.trim().toLowerCase()
+  if (!term) return props.jobs
+  return props.jobs.filter((job) => {
+    const haystack = [
+      job.title,
+      job.company,
+      job.location,
+      job.budget,
+      ...(job.tags || []),
+    ]
+      .join(' ')
+      .toLowerCase()
+    return haystack.includes(term)
+  })
 })
 </script>
 
 <template>
   <section class="jobs">
     <div class="panel-header">
-      <h2>Available Jobs</h2>
-      <button class="primary-btn">
-        <span class="plus">+</span>
-        Post Job
-      </button>
+      <div>
+        <p class="eyebrow">Find a job</p>
+        <h2>Explorer et filtrer les jobs disponibles</h2>
+      </div>
+      <div class="search">
+        <input v-model="search" type="search" placeholder="Rechercher par titre, stack ou client" />
+      </div>
     </div>
 
-    <div class="grid">
-      <article v-for="job in jobs" :key="job.title" class="card">
+    <div v-if="filteredJobs.length" class="grid">
+      <article v-for="job in filteredJobs" :key="job.title + job.company" class="card">
         <div class="card-head">
-          <div class="icon">🏢</div>
+          <div class="icon">💼</div>
           <div class="info">
             <h3>{{ job.title }}</h3>
             <p class="muted">{{ job.company }}</p>
@@ -38,10 +64,11 @@ defineProps({
             <p class="label">Budget</p>
             <p class="value">{{ job.budget }}</p>
           </div>
-          <button class="apply-btn">{{ job.cta }}</button>
+          <button class="apply-btn">Postuler</button>
         </div>
       </article>
     </div>
+    <p v-else class="empty">Aucun job ne correspond a ta recherche.</p>
   </section>
 </template>
 
@@ -54,9 +81,18 @@ defineProps({
 
 .panel-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.eyebrow {
+  color: #7ba7ff;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 11px;
+  font-weight: 800;
 }
 
 h2 {
@@ -65,28 +101,19 @@ h2 {
   font-weight: 700;
 }
 
-.primary-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
-  border-radius: 10px;
-  border: 1px solid rgba(61, 199, 255, 0.35);
-  background: #0b5f96;
-  color: #e8f7ff;
-  font-weight: 700;
-  cursor: pointer;
-  box-shadow: 0 10px 25px rgba(61, 199, 255, 0.18);
-  transition: transform 0.1s ease;
+.search input {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 10px 12px;
+  min-width: 240px;
+  color: #e8f3ff;
 }
 
-.primary-btn:hover {
-  transform: translateY(-1px);
-}
-
-.plus {
-  font-size: 16px;
-  line-height: 1;
+.search input:focus {
+  outline: none;
+  border-color: rgba(61, 199, 255, 0.5);
+  box-shadow: 0 0 0 1px rgba(61, 199, 255, 0.2);
 }
 
 .grid {
@@ -215,6 +242,10 @@ h2 {
   color: #bde8ff;
   font-weight: 700;
   cursor: pointer;
+}
+
+.empty {
+  color: #7c8da8;
 }
 
 @media (max-width: 680px) {

@@ -65,11 +65,13 @@ defineProps({
 }
 
 .panel {
-  background: rgba(15, 25, 46, 0.8);
-  border: 1px solid rgba(255, 255, 255, 0.04);
+  background: linear-gradient(160deg, rgba(8, 12, 24, 0.95), rgba(10, 17, 32, 0.92));
+  border: 1px solid rgba(120, 90, 255, 0.25);
   border-radius: 16px;
   padding: 18px;
-  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.35);
+  box-shadow:
+    0 14px 30px rgba(0, 0, 0, 0.4),
+    0 0 20px rgba(120, 90, 255, 0.22);
 }
 
 .panel-header {
@@ -77,9 +79,11 @@ defineProps({
 }
 
 .panel h2 {
-  color: #eaf1ff;
+  background: linear-gradient(90deg, #b77bff, #00c6ff);
+  -webkit-background-clip: text;
+  color: transparent;
   font-size: 16px;
-  font-weight: 700;
+  font-weight: 800;
 }
 
 .projects {
@@ -89,11 +93,12 @@ defineProps({
 }
 
 .project-card {
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(120, 90, 255, 0.28);
   border-radius: 14px;
   padding: 14px;
-  background: radial-gradient(circle at 20% 20%, rgba(61, 199, 255, 0.06), transparent 40%),
-    rgba(10, 17, 31, 0.75);
+  background: radial-gradient(circle at 20% 20%, rgba(120, 90, 255, 0.14), transparent 40%),
+    rgba(8, 12, 24, 0.8);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.35);
 }
 
 .project-top {
@@ -105,13 +110,13 @@ defineProps({
 }
 
 .project-card h3 {
-  color: #e5edff;
+  color: #eae7ff;
   font-weight: 700;
   font-size: 15px;
 }
 
 .muted {
-  color: #7c8da8;
+  color: #8f9cb8;
   font-size: 13px;
   margin-top: 2px;
 }
@@ -125,21 +130,21 @@ defineProps({
 }
 
 .status.active {
-  color: #0f7d46;
-  background: rgba(54, 215, 132, 0.16);
-  border: 1px solid rgba(54, 215, 132, 0.4);
+  color: #6ecbff;
+  background: rgba(110, 203, 255, 0.14);
+  border: 1px solid rgba(110, 203, 255, 0.5);
 }
 
 .status.pending {
-  color: #c07a18;
-  background: rgba(241, 174, 68, 0.15);
-  border: 1px solid rgba(241, 174, 68, 0.5);
+  color: #f3c26b;
+  background: rgba(243, 194, 107, 0.16);
+  border: 1px solid rgba(243, 194, 107, 0.45);
 }
 
 .status.completed {
-  color: #0ea5e9;
-  background: rgba(62, 198, 255, 0.16);
-  border: 1px solid rgba(62, 198, 255, 0.45);
+  color: #7bd38f;
+  background: rgba(123, 211, 143, 0.18);
+  border: 1px solid rgba(123, 211, 143, 0.45);
 }
 
 .project-meta {
@@ -156,12 +161,15 @@ defineProps({
 }
 
 .meta-value {
-  color: #44b5ff;
-  font-weight: 700;
+  background: linear-gradient(90deg, #b77bff, #00c6ff);
+  -webkit-background-clip: text;
+  color: transparent;
+  font-weight: 800;
+  display: inline-block;
 }
 
 .deadline .meta-value {
-  color: #d6deef;
+  color: #cfd8f0;
 }
 
 .transactions {
@@ -175,10 +183,11 @@ defineProps({
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(120, 90, 255, 0.16);
   border-radius: 12px;
   padding: 12px 14px;
-  background: rgba(6, 12, 23, 0.8);
+  background: rgba(7, 12, 24, 0.85);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.32);
 }
 
 .tx-main {
@@ -199,21 +208,21 @@ defineProps({
 }
 
 .tx-icon.in {
-  background: rgba(60, 215, 132, 0.16);
-  color: #2ed47a;
+  background: rgba(156, 124, 251, 0.16);
+  color: #c5a7ff;
 }
 
 .tx-icon.in::before {
-  content: '↓';
+  content: '↑';
 }
 
 .tx-icon.out {
-  background: rgba(127, 103, 255, 0.16);
-  color: #9b8eff;
+  background: rgba(103, 202, 255, 0.16);
+  color: #8ad4ff;
 }
 
 .tx-icon.out::before {
-  content: '↑';
+  content: '↓';
 }
 
 .tx-title {
@@ -236,11 +245,11 @@ defineProps({
 }
 
 .tx-amount.in {
-  color: #2ed47a;
+  color: #c5a7ff;
 }
 
 .tx-amount.out {
-  color: #f1b367;
+  color: #8ad4ff;
 }
 
 .tx-status {

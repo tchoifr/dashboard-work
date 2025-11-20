@@ -136,10 +136,13 @@ h3 {
 }
 
 .author {
-  color: #54c6ff;
-  font-weight: 700;
+  background: linear-gradient(90deg, #b77bff, #00c6ff);
+  -webkit-background-clip: text;
+  color: transparent;
+  font-weight: 800;
   margin-bottom: 4px;
   font-size: 12px;
+  display: inline-block;
 }
 
 .bubble-time {

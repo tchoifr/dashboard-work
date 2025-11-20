@@ -64,9 +64,11 @@ defineProps({
 }
 
 h2 {
-  color: #eaf1ff;
+  background: linear-gradient(90deg, #b77bff, #00c6ff);
+  -webkit-background-clip: text;
+  color: transparent;
   font-size: 17px;
-  font-weight: 700;
+  font-weight: 800;
 }
 
 .primary-btn {
@@ -74,18 +76,19 @@ h2 {
   align-items: center;
   gap: 8px;
   padding: 10px 14px;
-  border-radius: 10px;
-  border: 1px solid rgba(61, 199, 255, 0.35);
-  background: #0b5f96;
-  color: #e8f7ff;
-  font-weight: 700;
+  border-radius: 12px;
+  border: 1px solid rgba(120, 90, 255, 0.4);
+  background: linear-gradient(90deg, #6a48ff, #00c6ff);
+  color: #061227;
+  font-weight: 800;
   cursor: pointer;
-  box-shadow: 0 10px 25px rgba(61, 199, 255, 0.18);
-  transition: transform 0.1s ease;
+  box-shadow: 0 12px 28px rgba(0, 102, 255, 0.25);
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
 }
 
 .primary-btn:hover {
   transform: translateY(-1px);
+  box-shadow: 0 14px 32px rgba(0, 102, 255, 0.32);
 }
 
 .plus {
@@ -100,11 +103,13 @@ h2 {
 }
 
 .card {
-  background: rgba(15, 25, 46, 0.86);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: linear-gradient(160deg, rgba(8, 12, 24, 0.92), rgba(10, 17, 32, 0.9));
+  border: 1px solid rgba(120, 90, 255, 0.25);
   border-radius: 14px;
   padding: 16px;
-  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.28);
+  box-shadow:
+    0 14px 30px rgba(0, 0, 0, 0.32),
+    0 0 18px rgba(120, 90, 255, 0.2);
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -121,9 +126,10 @@ h2 {
   height: 40px;
   width: 40px;
   border-radius: 12px;
-  background: rgba(61, 199, 255, 0.14);
+  background: linear-gradient(145deg, rgba(106, 72, 255, 0.2), rgba(0, 198, 255, 0.16));
   display: grid;
   place-items: center;
+  border: 1px solid rgba(120, 90, 255, 0.4);
 }
 
 .doc {
@@ -131,13 +137,13 @@ h2 {
 }
 
 .info h3 {
-  color: #e5edff;
+  color: #eae7ff;
   font-size: 15px;
   font-weight: 700;
 }
 
 .muted {
-  color: #7c8da8;
+  color: #8f9cb8;
   font-size: 13px;
 }
 
@@ -151,21 +157,21 @@ h2 {
 }
 
 .badge.active {
-  color: #0f7d46;
-  background: rgba(54, 215, 132, 0.16);
-  border: 1px solid rgba(54, 215, 132, 0.4);
+  color: #6ecbff;
+  background: rgba(110, 203, 255, 0.14);
+  border: 1px solid rgba(110, 203, 255, 0.5);
 }
 
 .badge.signed {
-  color: #0f7d46;
-  background: rgba(64, 199, 126, 0.18);
-  border: 1px solid rgba(44, 173, 105, 0.45);
+  color: #7bd38f;
+  background: rgba(123, 211, 143, 0.18);
+  border: 1px solid rgba(123, 211, 143, 0.45);
 }
 
 .badge.pending {
-  color: #c07a18;
-  background: rgba(241, 174, 68, 0.15);
-  border: 1px solid rgba(241, 174, 68, 0.5);
+  color: #f3c26b;
+  background: rgba(243, 194, 107, 0.16);
+  border: 1px solid rgba(243, 194, 107, 0.45);
 }
 
 .meta {
@@ -180,8 +186,11 @@ h2 {
 }
 
 .value {
-  color: #44b5ff;
-  font-weight: 700;
+  background: linear-gradient(90deg, #b77bff, #00c6ff);
+  -webkit-background-clip: text;
+  color: transparent;
+  font-weight: 800;
+  display: inline-block;
 }
 
 .cta-row {
@@ -195,9 +204,9 @@ h2 {
   width: 100%;
   padding: 10px 12px;
   border-radius: 10px;
-  border: 1px solid rgba(61, 199, 255, 0.5);
-  background: rgba(61, 199, 255, 0.08);
-  color: #bde8ff;
+  border: 1px solid rgba(120, 90, 255, 0.4);
+  background: rgba(120, 90, 255, 0.12);
+  color: #e2dbff;
   font-weight: 700;
   cursor: pointer;
 }
@@ -206,9 +215,9 @@ h2 {
   height: 36px;
   width: 36px;
   border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.05);
-  color: #bde8ff;
+  border: 1px solid rgba(120, 90, 255, 0.35);
+  background: rgba(120, 90, 255, 0.12);
+  color: #d6c7ff;
   cursor: pointer;
   font-size: 16px;
 }

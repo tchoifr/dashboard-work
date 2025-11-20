@@ -3,11 +3,12 @@ import { ref } from 'vue'
 import OverviewSection from './OverviewSection.vue'
 import ContractsSection from './ContractsSection.vue'
 import JobsSection from './JobsSection.vue'
+import RechargerJobsSection from './RechargerJobsSection.vue'
 import MessagesSection from './MessagesSection.vue'
 import ProfileSection from './ProfileSection.vue'
 import { summaryCards, overviewData, contractData, jobData, messagesData, profileData } from '../store/dashboardData'
 
-const tabs = ['Overview', 'Contracts', 'Jobs', 'Messages', 'Profile']
+const tabs = ['Overview', 'Contracts', 'My Jobs', 'Find a job', 'Messages', 'Profile']
 const activeTab = ref('Overview')
 
 const setTab = (tab) => {
@@ -50,7 +51,8 @@ const setTab = (tab) => {
       :transactions="overviewData.transactions"
     />
     <ContractsSection v-else-if="activeTab === 'Contracts'" :contracts="contractData" />
-    <JobsSection v-else-if="activeTab === 'Jobs'" :jobs="jobData" />
+    <JobsSection v-else-if="activeTab === 'My Jobs'" :jobs="jobData" />
+    <RechargerJobsSection v-else-if="activeTab === 'Find a job'" :jobs="jobData" />
     <MessagesSection
       v-else-if="activeTab === 'Messages'"
       :conversations="messagesData.conversations"
@@ -111,13 +113,13 @@ const setTab = (tab) => {
 }
 
 .metric-card {
-  background: linear-gradient(135deg, #0f192e, #0e2841);
-  border: 1px solid rgba(255, 255, 255, 0.04);
+  background: linear-gradient(160deg, #0a0f1f 0%, #0b1328 100%);
+  border: 1px solid rgba(120, 90, 255, 0.25);
   border-radius: 14px;
   padding: 18px 18px 16px;
   box-shadow:
-    0 18px 40px rgba(0, 0, 0, 0.35),
-    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    0 18px 40px rgba(0, 0, 0, 0.45),
+    0 0 20px rgba(120, 90, 255, 0.28);
 }
 
 .metric-top {
@@ -128,7 +130,7 @@ const setTab = (tab) => {
 }
 
 .metric-label {
-  color: #8fa1ba;
+  color: #8f9cb8;
   font-size: 13px;
 }
 
@@ -136,8 +138,9 @@ const setTab = (tab) => {
   height: 32px;
   width: 32px;
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.05);
+  background: linear-gradient(145deg, rgba(106, 72, 255, 0.2), rgba(0, 198, 255, 0.16));
   position: relative;
+  border: 1px solid rgba(120, 90, 255, 0.4);
 }
 
 .metric-icon::before {
@@ -146,25 +149,28 @@ const setTab = (tab) => {
   inset: 0;
   display: grid;
   place-items: center;
-  color: #8ac8ff;
+  color: #a782ff;
   font-size: 11px;
   text-transform: capitalize;
 }
 
 .metric-value {
-  color: #f1f5ff;
+  background: linear-gradient(90deg, #b77bff, #00c6ff);
+  -webkit-background-clip: text;
+  color: transparent;
   font-size: 26px;
-  font-weight: 700;
+  font-weight: 800;
   margin-bottom: 6px;
-  letter-spacing: 0.3px;
+  letter-spacing: 0.4px;
 }
 
 .metric-change {
   font-size: 12px;
+  color: #8f9cb8;
 }
 
 .metric-change.up {
-  color: #34e5a6;
+  color: #99f0ff;
 }
 
 .tabs {

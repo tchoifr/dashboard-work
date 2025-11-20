@@ -186,8 +186,11 @@ ul {
 }
 
 .link {
-  color: #44b5ff;
-  font-weight: 700;
+  background: linear-gradient(90deg, #b77bff, #00c6ff);
+  -webkit-background-clip: text;
+  color: transparent;
+  font-weight: 800;
+  display: inline-block;
 }
 
 .note {

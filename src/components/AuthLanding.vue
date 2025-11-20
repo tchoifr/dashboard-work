@@ -30,10 +30,11 @@ const handleProceed = () => {
 
 .card {
   width: min(560px, 100%);
-  background: linear-gradient(140deg, rgba(10, 28, 42, 0.95), rgba(12, 34, 58, 0.94));
-  border: 1px solid rgba(61, 199, 255, 0.28);
+  background: linear-gradient(150deg, rgba(8, 12, 24, 0.96), rgba(10, 17, 32, 0.94));
+  border: 1px solid rgba(120, 90, 255, 0.35);
   box-shadow:
     0 20px 48px rgba(0, 0, 0, 0.35),
+    0 0 22px rgba(120, 90, 255, 0.2),
     inset 0 0 0 1px rgba(255, 255, 255, 0.04);
   border-radius: 20px;
   padding: 32px 28px;
@@ -49,7 +50,7 @@ const handleProceed = () => {
   position: absolute;
   inset: -30% -20% auto -20%;
   height: 50%;
-  background: radial-gradient(circle, rgba(61, 199, 255, 0.12), transparent 55%);
+  background: radial-gradient(circle, rgba(120, 90, 255, 0.12), transparent 55%);
   pointer-events: none;
 }
 
@@ -57,12 +58,12 @@ const handleProceed = () => {
   height: 92px;
   width: 92px;
   border-radius: 18px;
-  background: radial-gradient(circle at 50% 20%, rgba(61, 199, 255, 0.55), rgba(8, 17, 30, 0.9)),
+  background: radial-gradient(circle at 50% 20%, rgba(120, 90, 255, 0.6), rgba(8, 17, 30, 0.9)),
     linear-gradient(145deg, #0c1f35, #0c2542);
   display: grid;
   place-items: center;
-  border: 1px solid rgba(61, 199, 255, 0.35);
-  box-shadow: 0 15px 30px rgba(0, 0, 0, 0.4), 0 0 18px rgba(61, 199, 255, 0.36);
+  border: 1px solid rgba(120, 90, 255, 0.45);
+  box-shadow: 0 15px 30px rgba(0, 0, 0, 0.4), 0 0 18px rgba(120, 90, 255, 0.32);
 }
 
 .icon span {
@@ -73,21 +74,23 @@ const handleProceed = () => {
 }
 
 h1 {
-  color: #6cd5ff;
+  background: linear-gradient(90deg, #b77bff, #00c6ff);
+  -webkit-background-clip: text;
+  color: transparent;
   font-size: 24px;
   font-weight: 800;
   letter-spacing: 0.01em;
 }
 
 .lead {
-  color: #b5c9e9;
+  color: #9eb2d6;
   text-align: center;
 }
 
 .btn.primary {
   background: linear-gradient(90deg, #6a48ff, #00c6ff);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  color: #071121;
+  border: 1px solid rgba(120, 90, 255, 0.4);
+  color: #061227;
   border-radius: 24px;
   width: 100%;
   padding: 14px 18px;
@@ -114,12 +117,12 @@ h1 {
 .link {
   background: transparent;
   border: none;
-  color: #6ac3ff;
+  color: #8ad4ff;
   font-weight: 700;
   cursor: pointer;
 }
 .link:hover {
-  color: #8ed7ff;
+  color: #b4e4ff;
   text-decoration: underline;
 }
 </style>
