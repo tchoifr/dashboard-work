@@ -114,10 +114,18 @@ export const contractData = [
     period: 'Dec 10 - Feb 10',
     status: 'pending',
   },
+  {
+    name: 'Layer2 UI/UX Retainer',
+    client: 'Layer2 Labs',
+    amount: '12,000 USDC',
+    period: 'Nov 1 - Dec 15',
+    status: 'litige',
+  },
 ]
 
 export const jobData = [
   {
+    id: 'job-1',
     title: 'Senior Web3 Developer',
     company: 'DeFi Protocol',
     location: 'Remote',
@@ -126,8 +134,12 @@ export const jobData = [
     budget: '8,000-12,000 USDC/month',
     type: 'full-time',
     cta: 'Apply Now',
+    status: 'En attente',
+    expected: 'Intégration complète front + smart contracts pour dashboard DeFi, tests unitaires inclus.',
+    delivered: 'Phase de cadrage terminée, POC front livré.',
   },
   {
+    id: 'job-2',
     title: 'Smart Contract Auditor',
     company: 'Security Firm',
     location: 'USA/EU',
@@ -136,8 +148,12 @@ export const jobData = [
     budget: '15,000 USDC',
     type: 'contract',
     cta: 'Apply Now',
+    status: 'En cours',
+    expected: 'Audit complet avec rapport, couverture de tests et recommandations mitigation.',
+    delivered: 'Revue partielle des contrats, rapport intermédiaire fourni.',
   },
   {
+    id: 'job-3',
     title: 'Blockchain Consultant',
     company: 'StartupDAO',
     location: 'Remote',
@@ -146,6 +162,50 @@ export const jobData = [
     budget: '5,000 USDC/month',
     type: 'part-time',
     cta: 'Apply Now',
+    status: 'Validé',
+    expected: 'Roadmap tokenomics, stratégie de gouvernance, ateliers produit.',
+    delivered: 'Roadmap et livrables validés, ateliers complétés.',
+  },
+  {
+    id: 'job-4',
+    title: 'UI/UX Web3 Designer',
+    company: 'Layer2 Labs',
+    location: 'Remote',
+    posted: '1 day ago',
+    tags: ['Figma', 'Design System', 'Web3'],
+    budget: '3,500 USDC',
+    type: 'contract',
+    cta: 'Apply Now',
+    status: 'Litige',
+    expected: 'Maquettes complètes du dashboard, handoff Figma + specs responsive.',
+    delivered: 'Premières maquettes livrées, sections manquantes selon client.',
+  },
+]
+
+export const daoDisputes = [
+  {
+    id: 'dispute-1',
+    name: 'Layer2 UI/UX Retainer',
+    client: 'Layer2 Labs',
+    amount: '12,000 USDC',
+    period: 'Nov 1 - Dec 15',
+    expected: 'Maquettes complètes desktop et mobile, handoff Figma + spec responsive.',
+    delivered: 'Maquettes livrées à 70%, handoff incomplet sur mobile.',
+    status: 'Litige',
+    votesFor: 62,
+    totalVoters: 100,
+  },
+  {
+    id: 'dispute-2',
+    name: 'Smart Contract Audit',
+    client: 'BlockChain Inc',
+    amount: '240,000 USDC',
+    period: 'Dec 15 - Dec 30',
+    expected: 'Audit complet + rapport final + recommandations mitigation.',
+    delivered: 'Audit partiel, rapport intermédiaire fourni.',
+    status: 'Litige',
+    votesFor: 48,
+    totalVoters: 100,
   },
 ]
 

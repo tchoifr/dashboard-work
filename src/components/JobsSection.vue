@@ -1,4 +1,14 @@
 <script setup>
+const statusClass = (status) => {
+  if (!status) return ''
+  const normalized = status.toLowerCase()
+  if (normalized.includes('cours')) return 'en-cours'
+  if (normalized.includes('attente')) return 'en-attente'
+  if (normalized.includes('valid')) return 'valide'
+  if (normalized.includes('litige')) return 'litige'
+  return ''
+}
+
 defineProps({
   jobs: Array,
 })
@@ -17,7 +27,7 @@ defineProps({
     <div class="grid">
       <article v-for="job in jobs" :key="job.title" class="card">
         <div class="card-head">
-          <div class="icon">🏢</div>
+          <div class="icon">💼</div>
           <div class="info">
             <h3>{{ job.title }}</h3>
             <p class="muted">{{ job.company }}</p>
@@ -26,7 +36,10 @@ defineProps({
               <span class="dot">•</span> {{ job.posted }}
             </p>
           </div>
-          <span class="badge" :class="job.type">{{ job.type }}</span>
+          <div class="badges">
+            <span class="badge" :class="job.type">{{ job.type }}</span>
+            <span v-if="job.status" class="status-badge" :class="statusClass(job.status)">{{ job.status }}</span>
+          </div>
         </div>
 
         <div class="tags">
@@ -38,7 +51,15 @@ defineProps({
             <p class="label">Budget</p>
             <p class="value">{{ job.budget }}</p>
           </div>
-          <button class="apply-btn">{{ job.cta }}</button>
+          <div class="actions">
+            <button
+              v-if="job.status && statusClass(job.status) === 'en-cours'"
+              class="dispute-btn"
+              type="button"
+            >
+              Demander un litige
+            </button>
+          </div>
         </div>
       </article>
     </div>
@@ -60,9 +81,11 @@ defineProps({
 }
 
 h2 {
-  color: #eaf1ff;
+  background: linear-gradient(90deg, #b77bff, #00c6ff);
+  -webkit-background-clip: text;
+  color: transparent;
   font-size: 17px;
-  font-weight: 700;
+  font-weight: 800;
 }
 
 .primary-btn {
@@ -70,18 +93,19 @@ h2 {
   align-items: center;
   gap: 8px;
   padding: 10px 14px;
-  border-radius: 10px;
-  border: 1px solid rgba(61, 199, 255, 0.35);
-  background: #0b5f96;
-  color: #e8f7ff;
-  font-weight: 700;
+  border-radius: 12px;
+  border: 1px solid rgba(120, 90, 255, 0.4);
+  background: linear-gradient(90deg, #6a48ff, #00c6ff);
+  color: #061227;
+  font-weight: 800;
   cursor: pointer;
-  box-shadow: 0 10px 25px rgba(61, 199, 255, 0.18);
-  transition: transform 0.1s ease;
+  box-shadow: 0 12px 28px rgba(0, 102, 255, 0.25);
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
 }
 
 .primary-btn:hover {
   transform: translateY(-1px);
+  box-shadow: 0 14px 32px rgba(0, 102, 255, 0.32);
 }
 
 .plus {
@@ -96,11 +120,13 @@ h2 {
 }
 
 .card {
-  background: rgba(15, 25, 46, 0.86);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: linear-gradient(160deg, rgba(8, 12, 24, 0.92), rgba(10, 17, 32, 0.9));
+  border: 1px solid rgba(120, 90, 255, 0.25);
   border-radius: 14px;
   padding: 16px;
-  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.28);
+  box-shadow:
+    0 14px 30px rgba(0, 0, 0, 0.32),
+    0 0 18px rgba(120, 90, 255, 0.2);
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -117,10 +143,11 @@ h2 {
   height: 44px;
   width: 44px;
   border-radius: 14px;
-  background: rgba(61, 199, 255, 0.14);
+  background: linear-gradient(145deg, rgba(106, 72, 255, 0.2), rgba(0, 198, 255, 0.16));
   display: grid;
   place-items: center;
   font-size: 22px;
+  border: 1px solid rgba(120, 90, 255, 0.4);
 }
 
 .info h3 {
@@ -144,6 +171,11 @@ h2 {
   margin: 0 4px;
 }
 
+.badges {
+  display: flex;
+  gap: 6px;
+}
+
 .badge {
   padding: 6px 12px;
   border-radius: 999px;
@@ -154,21 +186,54 @@ h2 {
 }
 
 .badge.full-time {
-  color: #1f9dff;
-  background: rgba(61, 199, 255, 0.15);
-  border: 1px solid rgba(61, 199, 255, 0.45);
+  color: #6ecbff;
+  background: rgba(110, 203, 255, 0.14);
+  border: 1px solid rgba(110, 203, 255, 0.5);
 }
 
 .badge.contract {
-  color: #0f7d46;
-  background: rgba(54, 215, 132, 0.16);
-  border: 1px solid rgba(54, 215, 132, 0.4);
+  color: #7bd38f;
+  background: rgba(123, 211, 143, 0.18);
+  border: 1px solid rgba(123, 211, 143, 0.45);
 }
 
 .badge.part-time {
-  color: #9c7cfb;
-  background: rgba(156, 124, 251, 0.16);
-  border: 1px solid rgba(156, 124, 251, 0.45);
+  color: #f3c26b;
+  background: rgba(243, 194, 107, 0.16);
+  border: 1px solid rgba(243, 194, 107, 0.45);
+}
+
+.status-badge {
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: capitalize;
+  border: 1px solid transparent;
+}
+
+.status-badge.en-attente {
+  color: #b5becf;
+  background: rgba(181, 190, 207, 0.14);
+  border-color: rgba(181, 190, 207, 0.4);
+}
+
+.status-badge.en-cours {
+  color: #6ecbff;
+  background: rgba(110, 203, 255, 0.14);
+  border-color: rgba(110, 203, 255, 0.5);
+}
+
+.status-badge.valide {
+  color: #7bd38f;
+  background: rgba(123, 211, 143, 0.18);
+  border-color: rgba(123, 211, 143, 0.45);
+}
+
+.status-badge.litige {
+  color: #ff9a9a;
+  background: rgba(255, 107, 107, 0.16);
+  border-color: rgba(255, 107, 107, 0.55);
 }
 
 .tags {
@@ -194,6 +259,12 @@ h2 {
   gap: 12px;
 }
 
+.actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .label {
   color: #6d7c92;
   font-size: 12px;
@@ -210,10 +281,20 @@ h2 {
 .apply-btn {
   padding: 10px 16px;
   border-radius: 12px;
-  border: 1px solid rgba(61, 199, 255, 0.4);
-  background: rgba(61, 199, 255, 0.1);
-  color: #bde8ff;
+  border: 1px solid rgba(120, 90, 255, 0.4);
+  background: rgba(120, 90, 255, 0.12);
+  color: #e2dbff;
   font-weight: 700;
+  cursor: pointer;
+}
+
+.dispute-btn {
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 107, 107, 0.55);
+  background: rgba(255, 107, 107, 0.14);
+  color: #ff9a9a;
+  font-weight: 800;
   cursor: pointer;
 }
 

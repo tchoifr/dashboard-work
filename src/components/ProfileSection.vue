@@ -69,33 +69,37 @@ defineProps({
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  background: rgba(15, 25, 46, 0.85);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: linear-gradient(160deg, rgba(8, 12, 24, 0.95), rgba(10, 17, 32, 0.92));
+  border: 1px solid rgba(120, 90, 255, 0.25);
   border-radius: 14px;
   padding: 14px;
-  box-shadow: 0 12px 26px rgba(0, 0, 0, 0.28);
+  box-shadow:
+    0 12px 26px rgba(0, 0, 0, 0.32),
+    0 0 18px rgba(120, 90, 255, 0.2);
 }
 
 .eyebrow {
-  color: #7c8da8;
+  color: #8f9cb8;
   font-size: 12px;
   letter-spacing: 0.3px;
   text-transform: uppercase;
 }
 
 h2 {
-  color: #eaf1ff;
+  background: linear-gradient(90deg, #b77bff, #00c6ff);
+  -webkit-background-clip: text;
+  color: transparent;
   font-size: 20px;
-  font-weight: 700;
+  font-weight: 800;
 }
 
 .title {
-  color: #c9d9f1;
+  color: #d6def5;
   font-weight: 600;
 }
 
 .muted {
-  color: #7c8da8;
+  color: #8f9cb8;
 }
 
 .grid {
@@ -106,11 +110,13 @@ h2 {
 }
 
 .card {
-  background: rgba(15, 25, 46, 0.82);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: linear-gradient(160deg, rgba(8, 12, 24, 0.92), rgba(10, 17, 32, 0.9));
+  border: 1px solid rgba(120, 90, 255, 0.25);
   border-radius: 14px;
   padding: 14px;
-  box-shadow: 0 12px 26px rgba(0, 0, 0, 0.28);
+  box-shadow:
+    0 12px 26px rgba(0, 0, 0, 0.32),
+    0 0 18px rgba(120, 90, 255, 0.2);
 }
 
 .span-2 {
@@ -118,7 +124,7 @@ h2 {
 }
 
 .card h3 {
-  color: #dfe7f5;
+  color: #eae7ff;
   font-weight: 700;
   margin-bottom: 8px;
 }
@@ -136,12 +142,12 @@ h2 {
 }
 
 .chip {
-  background: rgba(61, 199, 255, 0.12);
-  border: 1px solid rgba(61, 199, 255, 0.3);
-  color: #bde8ff;
+  background: rgba(120, 90, 255, 0.12);
+  border: 1px solid rgba(120, 90, 255, 0.35);
+  color: #e2dbff;
   padding: 6px 10px;
   border-radius: 10px;
-  font-weight: 600;
+  font-weight: 700;
   font-size: 13px;
 }
 
@@ -174,14 +180,15 @@ ul {
 }
 
 .portfolio-item {
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(120, 90, 255, 0.25);
   border-radius: 10px;
   padding: 10px;
-  background: rgba(6, 12, 23, 0.6);
+  background: rgba(7, 12, 24, 0.78);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.28);
 }
 
 .label {
-  color: #dfe7f5;
+  color: #eae7ff;
   font-weight: 700;
 }
 
@@ -194,11 +201,11 @@ ul {
 }
 
 .note {
-  border: 1px dashed rgba(61, 199, 255, 0.4);
+  border: 1px dashed rgba(120, 90, 255, 0.35);
   border-radius: 12px;
   padding: 12px 14px;
-  color: #b0c5e0;
-  background: rgba(61, 199, 255, 0.06);
+  color: #b8c8e4;
+  background: rgba(120, 90, 255, 0.08);
 }
 
 @media (max-width: 720px) {

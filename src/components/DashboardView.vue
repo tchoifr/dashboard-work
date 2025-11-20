@@ -6,9 +6,18 @@ import JobsSection from './JobsSection.vue'
 import RechargerJobsSection from './RechargerJobsSection.vue'
 import MessagesSection from './MessagesSection.vue'
 import ProfileSection from './ProfileSection.vue'
-import { summaryCards, overviewData, contractData, jobData, messagesData, profileData } from '../store/dashboardData'
+import DaoDisputesSection from './DaoDisputesSection.vue'
+import {
+  summaryCards,
+  overviewData,
+  contractData,
+  jobData,
+  messagesData,
+  profileData,
+  daoDisputes,
+} from '../store/dashboardData'
 
-const tabs = ['Overview', 'Contracts', 'My Jobs', 'Find a job', 'Messages', 'Profile']
+const tabs = ['Overview', 'Contracts', 'My Jobs', 'Find a job', 'DAO', 'Messages', 'Profile']
 const activeTab = ref('Overview')
 
 const setTab = (tab) => {
@@ -53,6 +62,7 @@ const setTab = (tab) => {
     <ContractsSection v-else-if="activeTab === 'Contracts'" :contracts="contractData" />
     <JobsSection v-else-if="activeTab === 'My Jobs'" :jobs="jobData" />
     <RechargerJobsSection v-else-if="activeTab === 'Find a job'" :jobs="jobData" />
+    <DaoDisputesSection v-else-if="activeTab === 'DAO'" :disputes="daoDisputes" />
     <MessagesSection
       v-else-if="activeTab === 'Messages'"
       :conversations="messagesData.conversations"
@@ -180,25 +190,29 @@ const setTab = (tab) => {
 }
 
 .tab {
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  color: #92a3c3;
-  padding: 8px 16px;
-  border-radius: 12px;
-  font-weight: 600;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(120, 90, 255, 0.18);
+  color: #9babc8;
+  padding: 10px 18px;
+  border-radius: 14px;
+  font-weight: 700;
   cursor: pointer;
   transition: all 0.15s ease;
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.25);
 }
 
 .tab:hover {
-  color: #d0def8;
-  border-color: rgba(255, 255, 255, 0.12);
+  color: #dfe7ff;
+  border-color: rgba(120, 90, 255, 0.3);
 }
 
 .tab.active {
-  color: #e6f7ff;
-  background: rgba(61, 199, 255, 0.16);
-  border-color: rgba(61, 199, 255, 0.4);
+  color: #061227;
+  background: linear-gradient(90deg, #6a48ff, #00c6ff);
+  border-color: rgba(120, 90, 255, 0.5);
+  box-shadow:
+    0 10px 24px rgba(0, 102, 255, 0.28),
+    0 0 12px rgba(106, 72, 255, 0.25);
 }
 
 @media (max-width: 720px) {

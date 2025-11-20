@@ -49,24 +49,28 @@ defineProps({
 }
 
 .panel-header h2 {
-  color: #eaf1ff;
+  background: linear-gradient(90deg, #b77bff, #00c6ff);
+  -webkit-background-clip: text;
+  color: transparent;
   font-size: 17px;
-  font-weight: 700;
+  font-weight: 800;
 }
 
 .panel {
-  background: rgba(15, 25, 46, 0.8);
-  border: 1px solid rgba(255, 255, 255, 0.04);
+  background: linear-gradient(160deg, rgba(8, 12, 24, 0.95), rgba(10, 17, 32, 0.92));
+  border: 1px solid rgba(120, 90, 255, 0.25);
   border-radius: 14px;
   padding: 16px;
-  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.35);
+  box-shadow:
+    0 14px 30px rgba(0, 0, 0, 0.35),
+    0 0 18px rgba(120, 90, 255, 0.2);
   display: grid;
   grid-template-columns: 280px 1fr;
   gap: 16px;
 }
 
 h3 {
-  color: #dfe7f5;
+  color: #eae7ff;
   font-weight: 700;
   margin-bottom: 10px;
 }
@@ -79,9 +83,10 @@ h3 {
 
 .conversation {
   background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(120, 90, 255, 0.2);
   border-radius: 12px;
   padding: 12px;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.25);
 }
 
 .name {
@@ -102,14 +107,15 @@ h3 {
 }
 
 .thread {
-  background: rgba(6, 12, 23, 0.8);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(7, 12, 24, 0.85);
+  border: 1px solid rgba(120, 90, 255, 0.25);
   border-radius: 12px;
   padding: 14px;
   min-height: 260px;
   display: flex;
   flex-direction: column;
   gap: 12px;
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.32);
 }
 
 .bubble-row {
@@ -123,7 +129,7 @@ h3 {
 .bubble {
   max-width: 72%;
   background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(120, 90, 255, 0.22);
   border-radius: 14px;
   padding: 10px 12px;
   color: #eaf1ff;
@@ -131,8 +137,8 @@ h3 {
 }
 
 .bubble-row.me .bubble {
-  background: rgba(61, 199, 255, 0.16);
-  border-color: rgba(61, 199, 255, 0.35);
+  background: rgba(120, 90, 255, 0.15);
+  border-color: rgba(120, 90, 255, 0.32);
 }
 
 .author {
@@ -163,7 +169,7 @@ input {
   width: 100%;
   padding: 12px 14px;
   border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(120, 90, 255, 0.25);
   background: rgba(255, 255, 255, 0.04);
   color: #dfe7f5;
 }
@@ -172,12 +178,18 @@ input {
   height: 44px;
   width: 44px;
   border-radius: 12px;
-  border: 1px solid rgba(61, 199, 255, 0.45);
-  background: #0b5f96;
-  color: #e8f7ff;
+  border: 1px solid rgba(120, 90, 255, 0.4);
+  background: linear-gradient(90deg, #6a48ff, #00c6ff);
+  color: #061227;
   font-size: 16px;
   cursor: pointer;
-  box-shadow: 0 10px 24px rgba(61, 199, 255, 0.2);
+  box-shadow: 0 12px 26px rgba(0, 102, 255, 0.28);
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+.send:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 30px rgba(0, 102, 255, 0.32);
 }
 
 @media (max-width: 960px) {
