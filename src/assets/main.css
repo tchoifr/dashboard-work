@@ -1,0 +1,22 @@
+@import './base.css';
+
+#app {
+  min-height: 100vh;
+  padding: 32px 38px 48px;
+  font-weight: 500;
+}
+
+a {
+  color: var(--primary);
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--primary-strong);
+}
+
+@media (max-width: 640px) {
+  #app {
+    padding: 24px 18px 36px;
+  }
+}
