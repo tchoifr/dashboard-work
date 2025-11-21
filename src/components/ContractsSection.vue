@@ -226,5 +226,8 @@ h2 {
   .cta-row {
     grid-template-columns: 1fr 1fr;
   }
+  .grid{
+        grid-template-columns: repeat(auto-fit, minmax(282px, 1fr));
+  }
 }
 </style>
