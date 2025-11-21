@@ -1,4 +1,35 @@
 <script setup>
+import { reactive, ref, watch } from 'vue'
+
+const props = defineProps({
+  jobs: {
+    type: Array,
+    default: () => [],
+  },
+})
+
+const showForm = ref(false)
+const newJob = reactive({
+  title: '',
+  company: '',
+  location: 'Remote',
+  posted: 'Today',
+  type: 'Full-Time',
+  status: 'En Attente',
+  tagsInput: '',
+  budget: '',
+})
+
+const localJobs = ref([...props.jobs])
+
+watch(
+  () => props.jobs,
+  (incoming) => {
+    localJobs.value = [...incoming]
+  },
+  { deep: true }
+)
+
 const statusClass = (status) => {
   if (!status) return ''
   const normalized = status.toLowerCase()
@@ -9,23 +40,63 @@ const statusClass = (status) => {
   return ''
 }
 
-defineProps({
-  jobs: Array,
-})
+const resetForm = () => {
+  newJob.title = ''
+  newJob.company = ''
+  newJob.location = 'Remote'
+  newJob.posted = 'Today'
+  newJob.type = 'Full-Time'
+  newJob.status = 'En Attente'
+  newJob.tagsInput = ''
+  newJob.budget = ''
+}
+
+const openForm = () => {
+  resetForm()
+  showForm.value = true
+}
+
+const closeForm = () => {
+  showForm.value = false
+}
+
+const submitJob = () => {
+  if (!newJob.title || !newJob.company || !newJob.budget) return
+  const tags = newJob.tagsInput
+    .split(',')
+    .map((tag) => tag.trim())
+    .filter(Boolean)
+
+  localJobs.value = [
+    {
+      title: newJob.title,
+      company: newJob.company,
+      location: newJob.location,
+      posted: newJob.posted,
+      type: newJob.type,
+      status: newJob.status,
+      tags,
+      budget: newJob.budget,
+    },
+    ...localJobs.value,
+  ]
+
+  closeForm()
+}
 </script>
 
 <template>
   <section class="jobs">
     <div class="panel-header">
       <h2>Available Jobs</h2>
-      <button class="primary-btn">
+      <button class="primary-btn" type="button" @click="openForm">
         <span class="plus">+</span>
         Post Job
       </button>
     </div>
 
     <div class="grid">
-      <article v-for="job in jobs" :key="job.title" class="card">
+      <article v-for="job in localJobs" :key="job.title" class="card">
         <div class="card-head">
           <div class="icon">💼</div>
           <div class="info">
@@ -62,6 +133,77 @@ defineProps({
           </div>
         </div>
       </article>
+    </div>
+
+    <div v-if="showForm" class="modal" @click.self="closeForm">
+      <div class="modal-card">
+        <header class="modal-head">
+          <div>
+            <p class="eyebrow">Nouveau job</p>
+            <h3>Publier une offre</h3>
+            <p class="muted">Ajoutez les infos principales pour rendre votre offre visible.</p>
+          </div>
+          <button class="close-btn" type="button" @click="closeForm">×</button>
+        </header>
+
+        <form class="form" @submit.prevent="submitJob">
+          <div class="two-col">
+            <label class="field">
+              <span>Titre</span>
+              <input v-model="newJob.title" type="text" placeholder="Ex: Senior Web3 Developer" required />
+            </label>
+            <label class="field">
+              <span>Entreprise / Client</span>
+              <input v-model="newJob.company" type="text" placeholder="Ex: DeFi Protocol" required />
+            </label>
+          </div>
+          <div class="two-col">
+            <label class="field">
+              <span>Localisation</span>
+              <input v-model="newJob.location" type="text" placeholder="Remote" />
+            </label>
+            <label class="field">
+              <span>Date de publication</span>
+              <input v-model="newJob.posted" type="text" placeholder="Today" />
+            </label>
+          </div>
+          <div class="two-col">
+            <label class="field">
+              <span>Type</span>
+              <select v-model="newJob.type">
+                <option>Full-Time</option>
+                <option>Part-Time</option>
+                <option>Contract</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Statut</span>
+              <select v-model="newJob.status">
+                <option>En Attente</option>
+                <option>En Cours</option>
+                <option>Validé</option>
+                <option>Litige</option>
+              </select>
+            </label>
+          </div>
+          <label class="field">
+            <span>Budget</span>
+            <input v-model="newJob.budget" type="text" placeholder="8,000–12,000 USDC/month" required />
+          </label>
+          <label class="field">
+            <span>Tags</span>
+            <input v-model="newJob.tagsInput" type="text" placeholder="Solidity, React, Web3.js" />
+            <small>Séparez les tags par des virgules.</small>
+          </label>
+
+          <div class="form-actions">
+            <button class="ghost-btn" type="button" @click="closeForm">Annuler</button>
+            <button class="primary-btn" type="submit" :disabled="!newJob.title || !newJob.company || !newJob.budget">
+              Créer le job
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   </section>
 </template>
@@ -108,6 +250,11 @@ h2 {
   box-shadow: 0 14px 32px rgba(0, 102, 255, 0.32);
 }
 
+.primary-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .plus {
   font-size: 16px;
   line-height: 1;
@@ -134,8 +281,7 @@ h2 {
 
 .card-head {
   display: grid;
-  grid-template-columns: auto 1fr auto;
-  gap: 12px;
+  gap: 15px;
   align-items: center;
 }
 
@@ -295,6 +441,122 @@ h2 {
   background: rgba(255, 107, 107, 0.14);
   color: #ff9a9a;
   font-weight: 800;
+  cursor: pointer;
+}
+
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(2, 6, 16, 0.72);
+  backdrop-filter: blur(8px);
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  z-index: 20;
+}
+
+.modal-card {
+  width: min(540px, 100%);
+  background: linear-gradient(165deg, rgba(7, 10, 24, 0.96), rgba(10, 18, 36, 0.94));
+  border: 1px solid rgba(120, 90, 255, 0.3);
+  border-radius: 18px;
+  box-shadow:
+    0 24px 44px rgba(0, 0, 0, 0.45),
+    0 0 28px rgba(120, 90, 255, 0.3);
+  padding: 18px;
+  color: #dfe7ff;
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.modal-head h3 {
+  font-size: 16px;
+  color: #eae7ff;
+  margin: 0;
+}
+
+.close-btn {
+  height: 32px;
+  width: 32px;
+  border-radius: 50%;
+  border: 1px solid rgba(120, 90, 255, 0.35);
+  background: rgba(120, 90, 255, 0.1);
+  color: #d6c7ff;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: #9fb0cc;
+}
+
+.field span {
+  font-weight: 700;
+  color: #dfe7ff;
+}
+
+.field input,
+.field select {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(120, 90, 255, 0.28);
+  border-radius: 12px;
+  padding: 10px 12px;
+  color: #eae7ff;
+  font-size: 14px;
+}
+
+.field select {
+  cursor: pointer;
+}
+
+.field input::placeholder {
+  color: #6f7c96;
+}
+
+.field select option {
+  background: #0a0f1f;
+  color: #eae7ff;
+}
+
+.field small {
+  color: #7c8da8;
+}
+
+.two-col {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.ghost-btn {
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+  color: #dfe7ff;
+  font-weight: 700;
   cursor: pointer;
 }
 

@@ -79,7 +79,6 @@ const filteredJobs = computed(() => {
             <p class="value">{{ job.budget }}</p>
           </div>
           <div class="actions">
-            <button class="apply-btn">Apply Now</button>
             <button
               v-if="job.status && statusClass(job.status) === 'en-cours'"
               class="dispute-btn"
@@ -91,7 +90,7 @@ const filteredJobs = computed(() => {
         </div>
       </article>
     </div>
-    <p v-else class="empty">Aucun job ne correspond a ta recherche.</p>
+    <p v-else class="empty">Aucun job ne correspond à ta recherche.</p>
   </section>
 </template>
 
@@ -162,8 +161,7 @@ h2 {
 
 .card-head {
   display: grid;
-  grid-template-columns: auto 1fr auto;
-  gap: 12px;
+  gap: 15px;
   align-items: center;
 }
 
@@ -179,13 +177,13 @@ h2 {
 }
 
 .info h3 {
-  color: #eae7ff;
+  color: #e5edff;
   font-size: 15px;
   font-weight: 700;
 }
 
 .muted {
-  color: #8f9cb8;
+  color: #7c8da8;
   font-size: 13px;
 }
 
@@ -309,11 +307,22 @@ h2 {
 .apply-btn {
   padding: 10px 16px;
   border-radius: 12px;
-  border: 1px solid rgba(120, 90, 255, 0.4);
-  background: rgba(120, 90, 255, 0.12);
-  color: #e2dbff;
-  font-weight: 700;
+  border: 1px solid rgba(120, 90, 255, 0.45);
+  background: linear-gradient(90deg, rgba(106, 72, 255, 0.32), rgba(0, 198, 255, 0.32));
+  color: #e9f2ff;
+  font-weight: 800;
   cursor: pointer;
+  box-shadow:
+    0 12px 24px rgba(0, 102, 255, 0.2),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+  transition: transform 0.1s ease, box-shadow 0.1s ease, border-color 0.1s ease;
+}
+
+.apply-btn:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    0 14px 32px rgba(0, 102, 255, 0.26),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
 .dispute-btn {
@@ -331,9 +340,18 @@ h2 {
 }
 
 @media (max-width: 680px) {
+  .panel-header {
+    align-items: flex-start;
+  }
+
   .footer {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .actions {
+    width: 100%;
+    justify-content: flex-start;
   }
 }
 </style>

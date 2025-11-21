@@ -135,7 +135,7 @@ const setTab = (tab) => {
 .metric-top {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: space-around;
   margin-bottom: 14px;
 }
 
@@ -145,22 +145,22 @@ const setTab = (tab) => {
 }
 
 .metric-icon {
-  height: 32px;
-  width: 32px;
-  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 10px;
+  min-width: 32px;
+  border-radius: 12px;
   background: linear-gradient(145deg, rgba(106, 72, 255, 0.2), rgba(0, 198, 255, 0.16));
-  position: relative;
   border: 1px solid rgba(120, 90, 255, 0.4);
+  white-space: nowrap;
 }
 
 .metric-icon::before {
   content: attr(data-icon);
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
   color: #a782ff;
   font-size: 11px;
+  line-height: 1;
   text-transform: capitalize;
 }
 
@@ -185,6 +185,7 @@ const setTab = (tab) => {
 
 .tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
   margin: 12px 0 22px;
 }
