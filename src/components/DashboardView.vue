@@ -29,10 +29,7 @@ const setTab = (tab) => {
   <div class="page">
     <header class="top-bar">
       <div class="brand">
-        <p class="brand-title">
-          Web3 <span class="accent">Freelance</span>
-        </p>
-        <p class="subtitle">Tableau de bord connecté</p>
+       <img style="width: 50px; height: 50px; object-fit: contain;" src="/src/assets/logo-work.png" alt="">
       </div>
       <div class="profile">JD</div>
     </header>
