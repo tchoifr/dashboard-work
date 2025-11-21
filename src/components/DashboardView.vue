@@ -20,6 +20,8 @@ import {
 const tabs = ['Overview', 'Contracts', 'My Jobs', 'Find a job', 'DAO', 'Messages', 'Profile']
 const activeTab = ref('Overview')
 const profile = ref(JSON.parse(JSON.stringify(profileData)))
+const normalizeJob = (job) => ({ applied: false, ...job })
+const jobs = ref(jobData.map((job) => normalizeJob(job)))
 const conversations = ref(messagesData.conversations.map((c) => ({ ...c })))
 const threads = ref(
   Object.fromEntries(
@@ -27,6 +29,9 @@ const threads = ref(
   )
 )
 const activeConversation = ref(conversations.value[0] || null)
+const showApplyModal = ref(false)
+const selectedJob = ref(null)
+const applyMessage = ref('')
 
 const setTab = (tab) => {
   activeTab.value = tab
@@ -60,6 +65,87 @@ const handleSendMessage = (text) => {
     c.name === convoName ? { ...c, lastMessage: 'Just now' } : c
   )
 }
+
+const startApply = (job) => {
+  if (job.applied) return
+  selectedJob.value = job
+  applyMessage.value = `Hi ${job.company}, I'd like to apply for ${job.title}. Sharing my profile and availability.`
+  showApplyModal.value = true
+}
+
+const closeApplyModal = () => {
+  showApplyModal.value = false
+  selectedJob.value = null
+  applyMessage.value = ''
+}
+
+const handleJobApplication = () => {
+  if (!selectedJob.value) return
+  // Message et profil packagés pour l'offreur ; la conversation ne démarre que lorsqu'il répond.
+  const baseMessage =
+    applyMessage.value.trim() ||
+    `I would like to apply for ${selectedJob.value.title} at ${selectedJob.value.company}.`
+  const profileSummary = profile.value
+    ? `Profile: ${profile.value.name} — ${profile.value.title} | Rate ${profile.value.rate} | Availability ${profile.value.availability} | Skills: ${(profile.value.skills || []).slice(0, 3).join(', ')}`
+    : 'Profile shared.'
+  const finalText = `${baseMessage} — ${profileSummary}`
+  // Ici on stopperait l'envoi automatique vers Messages. À brancher côté recruteur pour initier la conversation.
+  console.debug('Application prepared for employer:', {
+    job: selectedJob.value,
+    message: finalText,
+  })
+  // Flag job as applied (UI disables buttons and shows badge)
+  const targetKey = selectedJob.value.id || `${selectedJob.value.company}-${selectedJob.value.title}`
+  jobs.value = jobs.value.map((job) => {
+    const jobKey = job.id || `${job.company}-${job.title}`
+    return jobKey === targetKey ? { ...job, applied: true } : job
+  })
+  selectedJob.value = null
+  closeApplyModal()
+}
+
+const startConversationWithApplicant = ({ job, applicant }) => {
+  if (!applicant || !applicant.name) return
+  const convoName = applicant.name
+  const existing = conversations.value.find((c) => c.name === convoName)
+  if (!existing) {
+    conversations.value = [...conversations.value, { name: convoName, lastMessage: 'Just now' }]
+  } else {
+    conversations.value = conversations.value.map((c) =>
+      c.name === convoName ? { ...c, lastMessage: 'Just now' } : c
+    )
+  }
+
+  const thread = threads.value[convoName] || []
+  const introMessage = `Bonjour ${applicant.name}, merci pour ta candidature sur ${job.title}. Dispo pour échanger ?`
+  const newMessage = {
+    id: Date.now(),
+    from: 'me',
+    author: 'You',
+    text: introMessage,
+    time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+  }
+  threads.value = { ...threads.value, [convoName]: [...thread, newMessage] }
+  activeConversation.value = conversations.value.find((c) => c.name === convoName) || activeConversation.value
+  activeTab.value = 'Messages'
+}
+
+const handleRejectApplicant = ({ job, applicant }) => {
+  const key = job.id || `${job.company}-${job.title}`
+  jobs.value = jobs.value.map((item) => {
+    const itemKey = item.id || `${item.company}-${item.title}`
+    if (itemKey !== key) return item
+    const filtered = (item.applicants || []).filter(
+      (cand) => (cand.id || cand.name) !== (applicant.id || applicant.name)
+    )
+    return { ...item, applicants: filtered }
+  })
+}
+
+const handleStartApplicantContract = ({ job, applicant }) => {
+  // Placeholder: in a real app, trigger contract creation flow
+  console.debug('Start contract with applicant', { job, applicant })
+}
 </script>
 
 <template>
@@ -92,8 +178,15 @@ const handleSendMessage = (text) => {
       :transactions="overviewData.transactions"
     />
     <ContractsSection v-else-if="activeTab === 'Contracts'" :contracts="contractData" />
-    <JobsSection v-else-if="activeTab === 'My Jobs'" :jobs="jobData" />
-    <RechargerJobsSection v-else-if="activeTab === 'Find a job'" :jobs="jobData" />
+    <JobsSection
+      v-else-if="activeTab === 'My Jobs'"
+      :jobs="jobs"
+      @apply-job="startApply"
+      @start-applicant-conversation="startConversationWithApplicant"
+      @reject-applicant="handleRejectApplicant"
+      @start-applicant-contract="handleStartApplicantContract"
+    />
+    <RechargerJobsSection v-else-if="activeTab === 'Find a job'" :jobs="jobs" @apply-job="startApply" />
     <DaoDisputesSection v-else-if="activeTab === 'DAO'" :disputes="daoDisputes" />
     <MessagesSection
       v-else-if="activeTab === 'Messages'"
@@ -104,6 +197,40 @@ const handleSendMessage = (text) => {
       @send-message="handleSendMessage"
     />
     <ProfileSection v-else :profile="profile" @save-profile="handleProfileSave" />
+
+    <div v-if="showApplyModal" class="apply-overlay" @click.self="closeApplyModal">
+      <div class="apply-card">
+        <header class="apply-head">
+          <div>
+            <p class="eyebrow">Apply to</p>
+            <h3>{{ selectedJob ? selectedJob.title : '' }} @ {{ selectedJob ? selectedJob.company : '' }}</h3>
+            <p class="muted">Ajoute un message. Ton profil sera partagé automatiquement.</p>
+          </div>
+          <button class="close-btn" type="button" @click="closeApplyModal">x</button>
+        </header>
+
+        <label class="field">
+          <span>Message</span>
+          <textarea
+            v-model="applyMessage"
+            rows="4"
+            placeholder="Présente ton intérêt, dispo et pourquoi tu es adapté."
+          ></textarea>
+        </label>
+
+        <div class="profile-share">
+          <p class="label">Profil partagé</p>
+          <p class="value">{{ profile.name }} — {{ profile.title }}</p>
+          <p class="muted">Rate: {{ profile.rate }} | Availability: {{ profile.availability }}</p>
+          <p class="muted">Skills: {{ (profile.skills || []).slice(0, 4).join(', ') }}</p>
+        </div>
+
+        <div class="apply-actions">
+          <button class="ghost-btn" type="button" @click="closeApplyModal">Annuler</button>
+          <button class="primary-btn" type="button" @click="handleJobApplication">Envoyer & partager</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -262,5 +389,109 @@ const handleSendMessage = (text) => {
   .metrics {
     grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
   }
+}
+
+.apply-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(2, 6, 16, 0.78);
+  backdrop-filter: blur(6px);
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  z-index: 30;
+}
+
+.apply-card {
+  width: min(520px, 100%);
+  background: radial-gradient(circle at 20% 20%, rgba(120, 90, 255, 0.14), rgba(0, 198, 255, 0)) ,
+    linear-gradient(165deg, rgba(7, 10, 24, 0.97), rgba(10, 18, 36, 0.95));
+  border: 1px solid rgba(120, 90, 255, 0.35);
+  border-radius: 18px;
+  box-shadow:
+    0 24px 44px rgba(0, 0, 0, 0.5),
+    0 0 28px rgba(120, 90, 255, 0.32);
+  padding: 18px;
+  color: #dfe7ff;
+  display: grid;
+  gap: 12px;
+}
+
+.apply-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.apply-head h3 {
+  margin: 0;
+  color: #eae7ff;
+}
+
+.close-btn {
+  height: 32px;
+  width: 32px;
+  border-radius: 50%;
+  border: 1px solid rgba(120, 90, 255, 0.45);
+  background: rgba(120, 90, 255, 0.18);
+  color: #e2dbff;
+  cursor: pointer;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.35);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: #9fb0cc;
+}
+
+.field span {
+  font-weight: 700;
+  color: #dfe7ff;
+}
+
+.field textarea {
+  resize: vertical;
+  min-height: 120px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(120, 90, 255, 0.35);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
+  border-radius: 12px;
+  padding: 12px 14px;
+  color: #eae7ff;
+  font-size: 14px;
+}
+
+.profile-share {
+  border: 1px solid rgba(120, 90, 255, 0.25);
+  border-radius: 12px;
+  padding: 12px 12px;
+  background: linear-gradient(160deg, rgba(120, 90, 255, 0.14), rgba(0, 198, 255, 0.08));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+}
+
+.apply-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.apply-actions .primary-btn {
+  padding: 10px 16px;
+  border-radius: 12px;
+  background: linear-gradient(90deg, #6a48ff, #00c6ff);
+  color: #061227;
+  border: 1px solid rgba(120, 90, 255, 0.4);
+}
+
+.apply-actions .ghost-btn {
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+  color: #e2dbff;
 }
 </style>

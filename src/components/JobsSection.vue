@@ -8,6 +8,8 @@ const props = defineProps({
   },
 })
 
+const emit = defineEmits(['apply-job', 'start-applicant-conversation', 'reject-applicant', 'start-applicant-contract'])
+
 const showForm = ref(false)
 const newJob = reactive({
   title: '',
@@ -21,6 +23,9 @@ const newJob = reactive({
 })
 
 const localJobs = ref([...props.jobs])
+const expandedApplicant = ref({})
+const selectedCandidate = ref(null)
+const selectedJob = ref(null)
 
 watch(
   () => props.jobs,
@@ -83,6 +88,20 @@ const submitJob = () => {
 
   closeForm()
 }
+
+const jobKey = (job) => job.id || `${job.company}-${job.title}`
+
+const toggleApplicant = (job, candidate) => {
+  selectedJob.value = job
+  selectedCandidate.value = candidate
+}
+
+const isExpanded = () => false
+
+const closeCandidateModal = () => {
+  selectedCandidate.value = null
+  selectedJob.value = null
+}
 </script>
 
 <template>
@@ -96,9 +115,9 @@ const submitJob = () => {
     </div>
 
     <div class="grid">
-      <article v-for="job in localJobs" :key="job.title" class="card">
+      <article v-for="job in localJobs" :key="job.id || job.title" class="card">
         <div class="card-head">
-          <div class="icon">💼</div>
+          <div class="icon">📄</div>
           <div class="info">
             <h3>{{ job.title }}</h3>
             <p class="muted">{{ job.company }}</p>
@@ -122,14 +141,25 @@ const submitJob = () => {
             <p class="label">Budget</p>
             <p class="value">{{ job.budget }}</p>
           </div>
-          <div class="actions">
-            <button
-              v-if="job.status && statusClass(job.status) === 'en-cours'"
-              class="dispute-btn"
-              type="button"
-            >
-              Demander un litige
-            </button>
+        </div>
+
+        <div v-if="job.applicants && job.applicants.length" class="applicants">
+          <div class="applicants-head">
+            <p class="label">Candidatures</p>
+            <span class="count">{{ job.applicants.length }}</span>
+          </div>
+          <div class="applicants-list">
+            <div v-for="candidate in job.applicants" :key="candidate?.id || candidate?.name" class="applicant-row">
+              <div class="applicant-main">
+                <p class="applicant-name">{{ candidate.name }}</p>
+                <p class="muted small">{{ candidate.title }}</p>
+              </div>
+              <div class="applicant-actions">
+                <button class="ghost-btn view-btn" type="button" @click="toggleApplicant(job, candidate)">
+                  Voir profil
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </article>
@@ -181,14 +211,14 @@ const submitJob = () => {
               <select v-model="newJob.status">
                 <option>En Attente</option>
                 <option>En Cours</option>
-                <option>Validé</option>
+                <option>Valide</option>
                 <option>Litige</option>
               </select>
             </label>
           </div>
           <label class="field">
             <span>Budget</span>
-            <input v-model="newJob.budget" type="text" placeholder="8,000–12,000 USDC/month" required />
+            <input v-model="newJob.budget" type="text" placeholder="8,000-12,000 USDC/month" required />
           </label>
           <label class="field">
             <span>Tags</span>
@@ -203,6 +233,98 @@ const submitJob = () => {
             </button>
           </div>
         </form>
+      </div>
+    </div>
+
+    <div v-if="selectedCandidate" class="candidate-overlay" @click.self="closeCandidateModal">
+      <div class="candidate-card">
+        <header class="modal-head">
+          <div>
+            <p class="eyebrow">Profil candidat</p>
+            <h3>{{ selectedCandidate.name }}</h3>
+            <p class="muted">{{ selectedCandidate.title }}</p>
+          </div>
+          <button class="close-btn" type="button" @click="closeCandidateModal">×</button>
+        </header>
+
+        <div class="candidate-preview">
+          <div class="summary-top">
+            <span class="chip">Rate: {{ selectedCandidate.profile?.rate || selectedCandidate.rate }}</span>
+            <span class="chip">Disponibilité: {{ selectedCandidate.profile?.availability || selectedCandidate.availability }}</span>
+            <span v-if="selectedCandidate.profile?.location" class="chip">Location: {{ selectedCandidate.profile.location }}</span>
+          </div>
+          <p class="muted summary-bio">
+            {{ selectedCandidate.profile?.bio || selectedCandidate.bio || 'Profil candidat' }}
+          </p>
+
+          <div class="summary-section">
+            <div class="section-head">
+              <p class="label">Core Skills</p>
+            </div>
+            <div class="tags">
+              <span
+                v-for="skill in selectedCandidate.profile?.skills || selectedCandidate.skills || []"
+                :key="skill"
+                class="tag"
+              >
+                {{ skill }}
+              </span>
+            </div>
+          </div>
+
+          <div
+            v-if="(selectedCandidate.profile?.highlights || selectedCandidate.highlights || []).length"
+            class="summary-section"
+          >
+            <div class="section-head">
+              <p class="label">Highlights</p>
+            </div>
+            <ul class="summary-list">
+              <li
+                v-for="item in selectedCandidate.profile?.highlights || selectedCandidate.highlights || []"
+                :key="item"
+              >
+                {{ item }}
+              </li>
+            </ul>
+          </div>
+
+          <div
+            v-if="(selectedCandidate.profile?.portfolio || selectedCandidate.portfolio || []).length"
+            class="summary-section"
+          >
+            <div class="section-head">
+              <p class="label">Portfolio</p>
+            </div>
+            <div class="portfolio">
+              <div
+                v-for="item in selectedCandidate.profile?.portfolio || selectedCandidate.portfolio || []"
+                :key="item.label"
+                class="portfolio-item"
+              >
+                <p class="portfolio-title">{{ item.label }}</p>
+                <p class="muted small">{{ item.tech }}</p>
+                <a class="link" :href="item.link || '#'">View</a>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="selectedCandidate.note" class="candidate-note">
+            {{ selectedCandidate.note }}
+          </div>
+        </div>
+
+        <div class="detail-actions">
+          <button class="ghost-btn" type="button" @click="emit('reject-applicant', { job: selectedJob, applicant: selectedCandidate })">
+            Refuser
+          </button>
+          <button class="primary-btn compact" type="button" @click="emit('start-applicant-contract', { job: selectedJob, applicant: selectedCandidate })">
+            Démarrer contrat
+          </button>
+          <button class="ghost-btn" type="button" @click="emit('start-applicant-conversation', { job: selectedJob, applicant: selectedCandidate })">
+            Démarrer conv.
+          </button>
+        </div>
       </div>
     </div>
   </section>
@@ -425,7 +547,7 @@ h2 {
 }
 
 .apply-btn {
-  padding: 10px 16px;
+  padding: 8px 12px;
   border-radius: 12px;
   border: 1px solid rgba(120, 90, 255, 0.4);
   background: rgba(120, 90, 255, 0.12);
@@ -434,14 +556,146 @@ h2 {
   cursor: pointer;
 }
 
+.apply-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
 .dispute-btn {
-  padding: 10px 14px;
+  padding: 8px 12px;
   border-radius: 12px;
   border: 1px solid rgba(255, 107, 107, 0.55);
   background: rgba(255, 107, 107, 0.14);
   color: #ff9a9a;
   font-weight: 800;
   cursor: pointer;
+}
+
+.dispute-btn.reject {
+  border-color: rgba(255, 107, 107, 0.45);
+  background: rgba(255, 107, 107, 0.12);
+}
+
+.owner-pill {
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: rgba(120, 90, 255, 0.14);
+  border: 1px solid rgba(120, 90, 255, 0.35);
+  color: #e2dbff;
+  font-weight: 800;
+  font-size: 12px;
+}
+
+.applicants {
+  border: 1px solid rgba(120, 90, 255, 0.25);
+  border-radius: 12px;
+  padding: 10px;
+  background: rgba(7, 12, 24, 0.78);
+  display: grid;
+  gap: 10px;
+}
+
+.applicants-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.count {
+  padding: 4px 8px;
+  border-radius: 10px;
+  background: rgba(120, 90, 255, 0.16);
+  color: #e2dbff;
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.applicants-list {
+  display: grid;
+  gap: 8px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.applicants-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.applicants-list::-webkit-scrollbar-thumb {
+  background: rgba(120, 90, 255, 0.45);
+  border-radius: 8px;
+}
+
+.applicant-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(120, 90, 255, 0.2);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.applicant-main {
+  display: grid;
+  gap: 2px;
+}
+
+.applicant-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.ghost-btn.view-btn {
+  background: linear-gradient(90deg, #6a48ff, #00c6ff);
+  border-color: transparent;
+  color: #061227;
+  font-weight: 800;
+  box-shadow:
+    0 10px 18px rgba(0, 102, 255, 0.25),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+.applicant-name {
+  color: #e5edff;
+  font-weight: 700;
+}
+
+.small {
+  font-size: 12px;
+}
+
+.applicant-details {
+  border: 1px solid rgba(120, 90, 255, 0.3);
+  border-radius: 12px;
+  padding: 12px;
+  background: linear-gradient(160deg, rgba(8, 12, 24, 0.92), rgba(10, 17, 32, 0.9));
+  box-shadow:
+    0 12px 26px rgba(0, 0, 0, 0.32),
+    0 0 18px rgba(120, 90, 255, 0.2);
+  display: grid;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.detail-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.primary-btn.compact {
+  padding: 8px 12px;
+  border-radius: 12px;
+}
+
+.note {
+  color: #c5d5ec;
+  font-size: 12px;
 }
 
 .modal {
@@ -551,7 +805,7 @@ h2 {
 }
 
 .ghost-btn {
-  padding: 10px 14px;
+  padding: 8px 12px;
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.04);
@@ -565,5 +819,114 @@ h2 {
     flex-direction: column;
     align-items: flex-start;
   }
+
+  .applicant-actions {
+    justify-content: flex-start;
+  }
+}
+
+.candidate-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(2, 6, 16, 0.78);
+  backdrop-filter: blur(8px);
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  z-index: 40;
+}
+
+.candidate-card {
+  width: min(620px, 100%);
+  background: radial-gradient(circle at 20% 20%, rgba(120, 90, 255, 0.14), rgba(0, 198, 255, 0)),
+    linear-gradient(165deg, rgba(7, 10, 24, 0.96), rgba(10, 18, 36, 0.94));
+  border: 1px solid rgba(120, 90, 255, 0.35);
+  border-radius: 18px;
+  box-shadow:
+    0 24px 44px rgba(0, 0, 0, 0.5),
+    0 0 28px rgba(120, 90, 255, 0.32);
+  padding: 18px;
+  color: #dfe7ff;
+  display: grid;
+  gap: 12px;
+}
+
+.candidate-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+.meta-block {
+  border: 1px solid rgba(120, 90, 255, 0.25);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.candidate-note {
+  border: 1px dashed rgba(120, 90, 255, 0.3);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.02);
+  color: #c5d5ec;
+}
+
+.candidate-summary {
+  display: grid;
+  gap: 10px;
+}
+
+.summary-top {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.chip {
+  background: rgba(120, 90, 255, 0.14);
+  border: 1px solid rgba(120, 90, 255, 0.35);
+  color: #e2dbff;
+  padding: 6px 10px;
+  border-radius: 10px;
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.summary-bio {
+  color: #c5d5ec;
+  margin: 0;
+}
+
+.summary-section {
+  display: grid;
+  gap: 6px;
+}
+
+.summary-list {
+  margin: 0;
+  padding-left: 16px;
+  color: #c5d5ec;
+  display: grid;
+  gap: 4px;
+}
+
+.portfolio {
+  display: grid;
+  gap: 10px;
+}
+
+.portfolio-item {
+  border: 1px solid rgba(120, 90, 255, 0.25);
+  border-radius: 10px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.28);
+}
+
+.portfolio-title {
+  color: #eae7ff;
+  font-weight: 700;
+  margin: 0 0 2px;
 }
 </style>

@@ -8,6 +8,8 @@ const props = defineProps({
   },
 })
 
+const emit = defineEmits(['apply-job'])
+
 const search = ref('')
 
 const statusClass = (status) => {
@@ -52,7 +54,7 @@ const filteredJobs = computed(() => {
     </div>
 
     <div v-if="filteredJobs.length" class="grid">
-      <article v-for="job in filteredJobs" :key="job.title + job.company" class="card">
+      <article v-for="job in filteredJobs" :key="job.id || job.title + job.company" class="card">
         <div class="card-head">
           <div class="icon">💼</div>
           <div class="info">
@@ -79,13 +81,9 @@ const filteredJobs = computed(() => {
             <p class="value">{{ job.budget }}</p>
           </div>
           <div class="actions">
-            <button class="apply-btn" type="button">Apply Now</button>
-            <button
-              v-if="job.status && statusClass(job.status) === 'en-cours'"
-              class="dispute-btn"
-              type="button"
-            >
-              Demander un litige
+            <span v-if="job.applied" class="applied-badge">Applied</span>
+            <button class="apply-btn" type="button" :disabled="job.applied" @click="emit('apply-job', job)">
+              {{ job.applied ? 'Already Applied' : 'Apply Now' }}
             </button>
           </div>
         </div>
@@ -326,6 +324,14 @@ h2 {
     inset 0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
+.apply-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: none;
+}
+
 .dispute-btn {
   padding: 10px 14px;
   border-radius: 12px;
@@ -338,6 +344,16 @@ h2 {
 
 .empty {
   color: #7c8da8;
+}
+
+.applied-badge {
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: rgba(120, 90, 255, 0.16);
+  border: 1px solid rgba(120, 90, 255, 0.3);
+  color: #e2dbff;
+  font-weight: 700;
+  font-size: 12px;
 }
 
 @media (max-width: 680px) {
