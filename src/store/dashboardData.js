@@ -115,16 +115,27 @@ export const daoDisputes = [
 
 export const messagesData = {
   conversations: [
-    { name: 'CryptoVentures LLC', lastMessage: 'Last message 2h ago' },
-    { name: 'Digital Arts Co', lastMessage: 'Last message 2h ago' },
-    { name: 'BlockChain Inc', lastMessage: 'Last message 2h ago' },
+    { name: 'CryptoVentures LLC', lastMessage: 'Last message 10:35 AM' },
+    { name: 'Digital Arts Co', lastMessage: 'Last message 9:20 AM' },
+    { name: 'BlockChain Inc', lastMessage: 'Last message 8:05 AM' },
   ],
-  thread: [
-    { id: 1, from: 'client', author: 'CryptoVentures LLC', text: "Hi! How's the project going?", time: '10:30 AM' },
-    { id: 2, from: 'me', author: 'You', text: "Great! I'm finishing the final touches on the UI.", time: '10:32 AM' },
-    { id: 3, from: 'client', author: 'CryptoVentures LLC', text: 'Perfect! When can we expect delivery?', time: '10:33 AM' },
-    { id: 4, from: 'me', author: 'You', text: 'Should be ready by Friday as planned.', time: '10:35 AM' },
-  ],
+  threads: {
+    'CryptoVentures LLC': [
+      { id: 1, from: 'client', author: 'CryptoVentures LLC', text: "Hi! How's the project going?", time: '10:30 AM' },
+      { id: 2, from: 'me', author: 'You', text: "Great! I'm finishing the final touches on the UI.", time: '10:32 AM' },
+      { id: 3, from: 'client', author: 'CryptoVentures LLC', text: 'Perfect! When can we expect delivery?', time: '10:33 AM' },
+      { id: 4, from: 'me', author: 'You', text: 'Should be ready by Friday as planned.', time: '10:35 AM' },
+    ],
+    'Digital Arts Co': [
+      { id: 5, from: 'client', author: 'Digital Arts Co', text: 'Can you share the latest NFT drop preview?', time: '9:12 AM' },
+      { id: 6, from: 'me', author: 'You', text: 'Uploading now, will ping when done.', time: '9:14 AM' },
+      { id: 7, from: 'client', author: 'Digital Arts Co', text: 'Thanks! Make sure mobile is covered.', time: '9:20 AM' },
+    ],
+    'BlockChain Inc': [
+      { id: 8, from: 'client', author: 'BlockChain Inc', text: 'Reminder: audit call at 2 PM UTC.', time: '8:00 AM' },
+      { id: 9, from: 'me', author: 'You', text: 'Confirmed. I will bring the coverage report.', time: '8:05 AM' },
+    ],
+  },
 }
 
 export const profileData = {

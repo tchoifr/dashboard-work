@@ -20,6 +20,13 @@ import {
 const tabs = ['Overview', 'Contracts', 'My Jobs', 'Find a job', 'DAO', 'Messages', 'Profile']
 const activeTab = ref('Overview')
 const profile = ref(JSON.parse(JSON.stringify(profileData)))
+const conversations = ref(messagesData.conversations.map((c) => ({ ...c })))
+const threads = ref(
+  Object.fromEntries(
+    Object.entries(messagesData.threads || {}).map(([name, list]) => [name, list.map((msg) => ({ ...msg }))])
+  )
+)
+const activeConversation = ref(conversations.value[0] || null)
 
 const setTab = (tab) => {
   activeTab.value = tab
@@ -27,6 +34,31 @@ const setTab = (tab) => {
 
 const handleProfileSave = (updatedProfile) => {
   profile.value = JSON.parse(JSON.stringify(updatedProfile))
+}
+
+const selectConversation = (conversation) => {
+  activeConversation.value = conversation
+  if (!threads.value[conversation.name]) {
+    threads.value = { ...threads.value, [conversation.name]: [] }
+  }
+}
+
+const handleSendMessage = (text) => {
+  if (!activeConversation.value || !text.trim()) return
+  const convoName = activeConversation.value.name
+  const thread = threads.value[convoName] || []
+  const newMessage = {
+    id: Date.now(),
+    from: 'me',
+    author: 'You',
+    text: text.trim(),
+    time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+  }
+  const updatedThread = [...thread, newMessage]
+  threads.value = { ...threads.value, [convoName]: updatedThread }
+  conversations.value = conversations.value.map((c) =>
+    c.name === convoName ? { ...c, lastMessage: 'Just now' } : c
+  )
 }
 </script>
 
@@ -65,8 +97,11 @@ const handleProfileSave = (updatedProfile) => {
     <DaoDisputesSection v-else-if="activeTab === 'DAO'" :disputes="daoDisputes" />
     <MessagesSection
       v-else-if="activeTab === 'Messages'"
-      :conversations="messagesData.conversations"
-      :thread="messagesData.thread"
+      :conversations="conversations"
+      :active-conversation="activeConversation"
+      :thread="threads[activeConversation?.name] || []"
+      @select-conversation="selectConversation"
+      @send-message="handleSendMessage"
     />
     <ProfileSection v-else :profile="profile" @save-profile="handleProfileSave" />
   </div>
