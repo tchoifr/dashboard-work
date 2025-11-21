@@ -28,9 +28,7 @@ const setTab = (tab) => {
 <template>
   <div class="page">
     <header class="top-bar">
-      <div class="brand">
-       <img style="width: 50px; height: 50px; object-fit: contain;" src="/src/assets/logo-work.png" alt="">
-      </div>
+      <div class="work-pill">WORK</div>
       <div class="profile">JD</div>
     </header>
 
@@ -83,20 +81,23 @@ const setTab = (tab) => {
   margin-bottom: 28px;
 }
 
-.brand-title {
-  font-size: 20px;
-  font-weight: 700;
-  color: #e9f2ff;
-}
-
-.accent {
-  color: #3dc7ff;
-}
-
-.subtitle {
-  color: #7c8da8;
-  font-size: 13px;
-  margin-top: 2px;
+.work-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 16px;
+  min-width: 72px;
+  border-radius: 14px;
+  background: radial-gradient(circle at 30% 30%, rgba(120, 90, 255, 0.5), rgba(0, 198, 255, 0.35)),
+    linear-gradient(145deg, rgba(24, 33, 64, 0.9), rgba(18, 26, 54, 0.96));
+  color: #eef2ff;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  font-size: 12px;
+  box-shadow:
+    0 14px 32px rgba(0, 0, 0, 0.35),
+    0 0 12px rgba(120, 90, 255, 0.4),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06);
 }
 
 .profile {
