@@ -19,9 +19,14 @@ import {
 
 const tabs = ['Overview', 'Contracts', 'My Jobs', 'Find a job', 'DAO', 'Messages', 'Profile']
 const activeTab = ref('Overview')
+const profile = ref(JSON.parse(JSON.stringify(profileData)))
 
 const setTab = (tab) => {
   activeTab.value = tab
+}
+
+const handleProfileSave = (updatedProfile) => {
+  profile.value = JSON.parse(JSON.stringify(updatedProfile))
 }
 </script>
 
@@ -63,7 +68,7 @@ const setTab = (tab) => {
       :conversations="messagesData.conversations"
       :thread="messagesData.thread"
     />
-    <ProfileSection v-else :profile="profileData" />
+    <ProfileSection v-else :profile="profile" @save-profile="handleProfileSave" />
   </div>
 </template>
 
