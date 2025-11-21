@@ -79,6 +79,7 @@ const filteredJobs = computed(() => {
             <p class="value">{{ job.budget }}</p>
           </div>
           <div class="actions">
+            <button class="apply-btn" type="button">Apply Now</button>
             <button
               v-if="job.status && statusClass(job.status) === 'en-cours'"
               class="dispute-btn"
