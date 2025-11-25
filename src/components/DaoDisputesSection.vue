@@ -34,11 +34,11 @@ defineProps({
         <div class="sections">
           <div class="block">
             <p class="label">Ce qui devait être livré</p>
-            <p class="text">Livrables conformes au scope initial, milestones respectées, documentation fournie.</p>
+            <p class="text">{{ contract.expected }}</p>
           </div>
           <div class="block">
             <p class="label">Ce qui a été fourni</p>
-            <p class="text">Livraison partielle, tests manquants sur le smart contract, UX en cours de finalisation.</p>
+            <p class="text">{{ contract.delivered }}</p>
           </div>
         </div>
 
