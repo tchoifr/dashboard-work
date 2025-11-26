@@ -176,8 +176,9 @@ h3 {
 }
 
 .thread::-webkit-scrollbar-thumb {
-  background: rgba(120, 90, 255, 0.45);
+  background-image: linear-gradient(180deg, #6b1dff 0%, #2d82ff 100%);
   border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .bubble-row {

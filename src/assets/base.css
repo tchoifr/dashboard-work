@@ -38,3 +38,27 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #4f6aff rgba(5, 7, 18, 0.85);
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+*::-webkit-scrollbar-track {
+  background: rgba(3, 5, 15, 0.85);
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-image: linear-gradient(180deg, #6b1dff 0%, #2d82ff 100%);
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    0 0 10px rgba(45, 130, 255, 0.45),
+    inset 0 0 6px rgba(255, 255, 255, 0.18);
+}

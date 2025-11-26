@@ -730,6 +730,146 @@ const transactions = [
     txHash: '0x444',
     contractId: 'contract-2',
   },
+  {
+    id: 'tx-5',
+    label: 'Retainer settlement - Layer2 UI/UX',
+    amountUsd: 12000,
+    date: '2025-11-24T12:00:00Z',
+    status: 'completed',
+    direction: 'in',
+    txHash: '0x555',
+    contractId: 'contract-4',
+  },
+  {
+    id: 'tx-6',
+    label: 'Payout to designer',
+    amountUsd: 2500,
+    date: '2025-11-24T14:00:00Z',
+    status: 'completed',
+    direction: 'out',
+    txHash: '0x666',
+    contractId: 'contract-4',
+  },
+  {
+    id: 'tx-7',
+    label: 'Partial deposit - Audit Express',
+    amountUsd: 15000,
+    date: '2025-11-23T09:00:00Z',
+    status: 'completed',
+    direction: 'in',
+    txHash: '0x777',
+    contractId: 'contract-2',
+  },
+  {
+    id: 'tx-8',
+    label: 'Ops budget',
+    amountUsd: 1200,
+    date: '2025-11-22T10:00:00Z',
+    status: 'completed',
+    direction: 'out',
+    txHash: '0x888',
+    contractId: null,
+  },
+  {
+    id: 'tx-9',
+    label: 'Milestone payout - NFT Marketplace',
+    amountUsd: 2000,
+    date: '2025-11-21T17:00:00Z',
+    status: 'completed',
+    direction: 'in',
+    txHash: '0x999',
+    contractId: 'contract-3',
+  },
+  {
+    id: 'tx-10',
+    label: 'Platform fees adjustment',
+    amountUsd: 110,
+    date: '2025-11-20T11:00:00Z',
+    status: 'completed',
+    direction: 'out',
+    txHash: '0xaaa',
+    contractId: null,
+  },
+  {
+    id: 'tx-11',
+    label: 'Escrow top-up - Layer2 Collective',
+    amountUsd: 60000,
+    date: '2025-11-19T08:00:00Z',
+    status: 'completed',
+    direction: 'in',
+    txHash: '0xbbb',
+    contractId: 'contract-4',
+  },
+  {
+    id: 'tx-12',
+    label: 'Community reward',
+    amountUsd: 320,
+    date: '2025-11-18T13:00:00Z',
+    status: 'completed',
+    direction: 'out',
+    txHash: '0xccc',
+    contractId: null,
+  },
+  {
+    id: 'tx-13',
+    label: 'Escrow release - DeFi Platform',
+    amountUsd: 5200,
+    date: '2025-11-17T15:00:00Z',
+    status: 'completed',
+    direction: 'in',
+    txHash: '0xddd',
+    contractId: 'contract-1',
+  },
+  {
+    id: 'tx-14',
+    label: 'Bonus milestone - NFT Marketplace',
+    amountUsd: 1400,
+    date: '2025-11-16T10:00:00Z',
+    status: 'completed',
+    direction: 'in',
+    txHash: '0xeee',
+    contractId: 'contract-3',
+  },
+  {
+    id: 'tx-15',
+    label: 'DAO treasury contribution',
+    amountUsd: 25000,
+    date: '2025-11-15T12:30:00Z',
+    status: 'completed',
+    direction: 'in',
+    txHash: '0xfff',
+    contractId: 'contract-4',
+  },
+  {
+    id: 'tx-16',
+    label: 'Audit rush fee',
+    amountUsd: 6000,
+    date: '2025-11-14T09:45:00Z',
+    status: 'completed',
+    direction: 'in',
+    txHash: '0x123',
+    contractId: 'contract-2',
+  },
+  {
+    id: 'tx-17',
+    label: 'Layer2 DAO bonus',
+    amountUsd: 3200,
+    date: '2025-11-13T11:20:00Z',
+    status: 'completed',
+    direction: 'in',
+    txHash: '0x124',
+    contractId: 'contract-4',
+  },
+  {
+    id: 'tx-18',
+    label: 'Escrow refill - Smart Contract Audit',
+    amountUsd: 70000,
+    date: '2025-11-12T08:40:00Z',
+    status: 'completed',
+    direction: 'in',
+    txHash: '0x125',
+    contractId: 'contract-2',
+  },
 ]
 
 const smartContracts = [
@@ -819,6 +959,58 @@ const daoDisputesRaw = [
     periodEnd: '2025-12-30',
     votesFavorable: 48,
     votesTotal: 100,
+    status: 'Litige',
+  },
+  {
+    id: 'dispute-3',
+    contractId: 'contract-1',
+    title: 'Dashboard Delivery',
+    descriptionExpected: 'Livraison finale + responsive QA.',
+    descriptionDelivered: 'Desktop parfait mais mobile incomplet.',
+    amountUsd: 4800,
+    periodStart: '2025-11-05',
+    periodEnd: '2025-12-05',
+    votesFavorable: 35,
+    votesTotal: 80,
+    status: 'Litige',
+  },
+  {
+    id: 'dispute-4',
+    contractId: 'contract-3',
+    title: 'NFT Drop',
+    descriptionExpected: 'Livraison front + mint flow + analytics.',
+    descriptionDelivered: 'Front ok, analytics manquants.',
+    amountUsd: 8000,
+    periodStart: '2025-12-01',
+    periodEnd: '2026-01-15',
+    votesFavorable: 52,
+    votesTotal: 90,
+    status: 'Litige',
+  },
+  {
+    id: 'dispute-5',
+    contractId: null,
+    title: 'Audit Express',
+    descriptionExpected: 'Audit complet en 7 jours.',
+    descriptionDelivered: 'Livraison partielle, manque rapport final.',
+    amountUsd: 15000,
+    periodStart: '2025-12-10',
+    periodEnd: '2025-12-20',
+    votesFavorable: 22,
+    votesTotal: 70,
+    status: 'Litige',
+  },
+  {
+    id: 'dispute-6',
+    contractId: null,
+    title: 'Design Sprint',
+    descriptionExpected: 'Sprint design complet + livrable Figma.',
+    descriptionDelivered: 'Concepts livrés, manque prototype interactif.',
+    amountUsd: 6500,
+    periodStart: '2025-11-12',
+    periodEnd: '2025-12-01',
+    votesFavorable: 41,
+    votesTotal: 75,
     status: 'Litige',
   },
 ]
@@ -940,6 +1132,7 @@ const formatRelativePosted = (value) => {
 }
 
 const findUser = (id) => db.users.find((user) => user.id === id)
+const findContract = (id) => db.contracts.find((contract) => contract.id === id)
 
 const jobStatusLabels = {
   pending: 'En Attente',
@@ -1023,6 +1216,12 @@ export const contractData = db.contracts.map((contract) => ({
   amount: formatCurrency(contract.amountUsd),
   period: formatPeriod(contract.periodStart, contract.periodEnd),
   status: contract.status,
+  description: contract.scopeExpected || '',
+  checkpoints: contract.scopeDelivered || '',
+  timeline: {
+    start: contract.periodStart || '',
+    end: contract.periodEnd || '',
+  },
 }))
 
 export const overviewData = {
@@ -1043,7 +1242,7 @@ export const overviewData = {
 }
 
 export const daoDisputes = db.daoDisputes.map((dispute) => {
-  const contract = db.contracts.find((item) => item.id === dispute.contractId)
+  const contract = findContract(dispute.contractId)
   return {
     id: dispute.id,
     name: contract?.title || dispute.title,
@@ -1122,5 +1321,88 @@ export const summaryCards = [
   { title: 'Total Clients', value: String(uniqueClients), change: '+1 new', trend: 'up', icon: 'users' },
   { title: 'Monthly Revenue', value: formatCurrency(monthlyRevenue), change: '+18.2%', trend: 'up', icon: 'chart' },
 ]
+
+const openDaoDisputes = db.daoDisputes.filter((dispute) => (dispute.status || '').toLowerCase().includes('litige'))
+const totalDisputeVolumeUsd = openDaoDisputes.reduce((acc, dispute) => {
+  const contract = findContract(dispute.contractId)
+  return acc + (dispute.amountUsd || contract?.amountUsd || 0)
+}, 0)
+const latestDisputeDate = openDaoDisputes.reduce((latest, dispute) => {
+  const contract = findContract(dispute.contractId)
+  const candidate = new Date(
+    dispute.periodEnd ||
+      contract?.periodEnd ||
+      dispute.periodStart ||
+      contract?.periodStart ||
+      contract?.createdAt ||
+      dispute.createdAt ||
+      0
+  )
+  return candidate > latest ? candidate : latest
+}, new Date(0))
+const averageFavorableVotes = openDaoDisputes.length
+  ? Math.round(
+      (openDaoDisputes.reduce(
+        (acc, dispute) => acc + (dispute.votesTotal ? dispute.votesFavorable / dispute.votesTotal : 0),
+        0
+      ) /
+        openDaoDisputes.length) *
+        100
+    )
+  : 0
+
+export const adminSummaryCards = [
+  { title: 'Litiges actifs', value: String(openDaoDisputes.length), subtext: 'Dossiers arbitrés', tag: 'DAO' },
+  {
+    title: 'Volume en litige',
+    value: formatCurrency(totalDisputeVolumeUsd),
+    subtext: 'Escrow sous surveillance',
+    tag: 'Escrow',
+  },
+  {
+    title: 'Votes favorables moyens',
+    value: `${averageFavorableVotes}%`,
+    subtext: 'Consensus DAO',
+    tag: 'Votes',
+  },
+  {
+    title: 'Dernier dossier',
+    value: latestDisputeDate.getTime() ? formatFullDate(latestDisputeDate) : '—',
+    subtext: 'Mise à jour la plus récente',
+    tag: 'Timeline',
+  },
+]
+
+const VALIDATED_CONTRACT_STATUSES = ['active', 'completed', 'approved', 'signed']
+
+const isValidatedTransaction = (transaction) => {
+  if (transaction.status !== 'completed') return false
+  const contract = findContract(transaction.contractId)
+  if (!contract) return true
+  return VALIDATED_CONTRACT_STATUSES.includes((contract.status || '').toLowerCase())
+}
+
+export const adminTransactions = db.transactions
+  .filter((transaction) => isValidatedTransaction(transaction) && transaction.direction !== 'out')
+  .slice()
+  .sort((a, b) => new Date(b.date) - new Date(a.date))
+  .map((transaction) => {
+    const contract = findContract(transaction.contractId)
+    const clientName = contract ? findUser(contract.clientId)?.username : 'Wallet'
+    const platformShare = transaction.amountUsd * 0.05
+    return {
+      id: transaction.id,
+      label: transaction.label,
+      amount: formatCurrency(transaction.amountUsd),
+      direction: transaction.direction,
+      status: transaction.status,
+      date: formatFullDate(transaction.date),
+      time: formatTimeLabel(transaction.date),
+      txHash: transaction.txHash,
+      contract: contract?.title || 'Flux plateforme',
+      counterparty: clientName,
+      platformShare: formatCurrency(platformShare),
+    }
+  })
 
 export const mockDatabase = db

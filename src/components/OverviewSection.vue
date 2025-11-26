@@ -90,6 +90,9 @@ defineProps({
   display: flex;
   flex-direction: column;
   gap: 12px;
+  max-height: 360px;
+  overflow-y: auto;
+  padding-right: 6px;
 }
 
 .project-card {
@@ -176,6 +179,9 @@ defineProps({
   display: flex;
   flex-direction: column;
   gap: 10px;
+  max-height: 360px;
+  overflow-y: auto;
+  padding-right: 6px;
 }
 
 .transaction {

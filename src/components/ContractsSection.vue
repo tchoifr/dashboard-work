@@ -1,14 +1,34 @@
 <script setup>
-defineProps({
+import { jsPDF } from 'jspdf'
+
+const props = defineProps({
   contracts: Array,
 })
+
+const emit = defineEmits(['create-contract', 'view-contract'])
+
+const openContract = () => emit('create-contract')
+
+const downloadContract = (contract) => {
+  const doc = new jsPDF()
+  doc.setFontSize(16)
+  doc.text(contract.name || 'Contract', 20, 20)
+  doc.setFontSize(12)
+  doc.text(`Client: ${contract.client || ''}`, 20, 35)
+  doc.text(`Amount: ${contract.amount || ''}`, 20, 45)
+  doc.text(`Period: ${contract.period || ''}`, 20, 55)
+  doc.text(`Status: ${contract.status || ''}`, 20, 65)
+  doc.save(`${contract.name || 'contract'}.pdf`)
+}
+
+const viewContract = (contract) => emit('view-contract', contract)
 </script>
 
 <template>
   <section class="contracts">
     <div class="panel-header">
       <h2>My Contracts</h2>
-      <button class="primary-btn">
+      <button class="primary-btn" type="button" @click="openContract">
         <span class="plus">+</span>
         New Contract
       </button>
@@ -39,8 +59,8 @@ defineProps({
         </div>
 
         <div class="cta-row">
-          <button class="outline-btn">View</button>
-          <button class="icon-btn" title="Download">
+          <button class="outline-btn" type="button" @click="viewContract(contract)">View</button>
+          <button class="icon-btn" type="button" title="Download" @click="downloadContract(contract)">
             ⬇
           </button>
         </div>

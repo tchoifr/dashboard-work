@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import OverviewSection from './OverviewSection.vue'
 import ContractsSection from './ContractsSection.vue'
 import JobsSection from './JobsSection.vue'
@@ -7,6 +7,9 @@ import RechargerJobsSection from './RechargerJobsSection.vue'
 import MessagesSection from './MessagesSection.vue'
 import ProfileSection from './ProfileSection.vue'
 import DaoDisputesSection from './DaoDisputesSection.vue'
+import AdminSection from './AdminSection.vue'
+import ContractCreationModal from './ContractCreationModal.vue'
+import ContractPreviewModal from './ContractPreviewModal.vue'
 import {
   summaryCards,
   overviewData,
@@ -15,14 +18,18 @@ import {
   messagesData,
   profileData,
   daoDisputes,
+  adminSummaryCards,
+  adminTransactions,
 } from '../store/dashboardData'
 
-const tabs = ['Overview', 'Contracts', 'My Jobs', 'Find a job', 'DAO', 'Messages', 'Profile']
+const tabs = ['Overview', 'Contracts', 'My Jobs', 'Find a job', 'Messages', 'Profile', 'DAO', 'Admin']
 const activeTab = ref('Overview')
 const profile = ref(JSON.parse(JSON.stringify(profileData)))
 const normalizeJob = (job) => ({ applied: false, ...job })
 const jobs = ref(jobData.map((job) => normalizeJob(job)))
 const conversations = ref(messagesData.conversations.map((c) => ({ ...c })))
+const activeContracts = ref(contractData.map((contract) => ({ ...contract })))
+const employerOptions = computed(() => [...new Set(conversations.value.map((c) => c.name))])
 const threads = ref(
   Object.fromEntries(
     Object.entries(messagesData.threads || {}).map(([name, list]) => [name, list.map((msg) => ({ ...msg }))])
@@ -32,6 +39,9 @@ const activeConversation = ref(conversations.value[0] || null)
 const showApplyModal = ref(false)
 const selectedJob = ref(null)
 const applyMessage = ref('')
+const showContractModal = ref(false)
+const showContractViewer = ref(false)
+const activeContractPreview = ref(null)
 
 const setTab = (tab) => {
   activeTab.value = tab
@@ -146,6 +156,45 @@ const handleStartApplicantContract = ({ job, applicant }) => {
   // Placeholder: in a real app, trigger contract creation flow
   console.debug('Start contract with applicant', { job, applicant })
 }
+
+const openContractModal = () => {
+  showContractModal.value = true
+}
+
+const closeContractModal = () => {
+  showContractModal.value = false
+}
+
+const openContractViewer = (contract) => {
+  activeContractPreview.value = contract
+  showContractViewer.value = true
+}
+
+const closeContractViewer = () => {
+  showContractViewer.value = false
+  activeContractPreview.value = null
+}
+
+const formatTimelineRange = (start, end) => {
+  if (!start && !end) return ''
+  return [start, end].filter(Boolean).join(' → ')
+}
+
+const handleContractSubmit = (payload) => {
+  const newContract = {
+    name: payload.title,
+    client: payload.employer,
+    amount: payload.price,
+    period: formatTimelineRange(payload.timeline.start, payload.timeline.end),
+    timeline: { ...payload.timeline },
+    description: payload.description,
+    checkpoints: payload.checkpoints,
+    status: 'pending',
+  }
+  activeContracts.value = [{ ...newContract }, ...activeContracts.value]
+  console.debug('Contract creation requested', payload)
+  closeContractModal()
+}
 </script>
 
 <template>
@@ -155,7 +204,7 @@ const handleStartApplicantContract = ({ job, applicant }) => {
       <div class="profile">JD</div>
     </header>
 
-    <section class="metrics">
+    <section v-if="activeTab !== 'Admin'" class="metrics">
       <article v-for="card in summaryCards" :key="card.title" class="metric-card">
         <div class="metric-top">
           <p class="metric-label">{{ card.title }}</p>
@@ -177,7 +226,12 @@ const handleStartApplicantContract = ({ job, applicant }) => {
       :projects="overviewData.projects"
       :transactions="overviewData.transactions"
     />
-    <ContractsSection v-else-if="activeTab === 'Contracts'" :contracts="contractData" />
+    <ContractsSection
+      v-else-if="activeTab === 'Contracts'"
+      :contracts="activeContracts"
+      @create-contract="openContractModal"
+      @view-contract="openContractViewer"
+    />
     <JobsSection
       v-else-if="activeTab === 'My Jobs'"
       :jobs="jobs"
@@ -196,7 +250,13 @@ const handleStartApplicantContract = ({ job, applicant }) => {
       @select-conversation="selectConversation"
       @send-message="handleSendMessage"
     />
-    <ProfileSection v-else :profile="profile" @save-profile="handleProfileSave" />
+    <ProfileSection v-else-if="activeTab === 'Profile'" :profile="profile" @save-profile="handleProfileSave" />
+    <AdminSection
+      v-else
+      :cards="adminSummaryCards"
+      :disputes="daoDisputes"
+      :transactions="adminTransactions"
+    />
 
     <div v-if="showApplyModal" class="apply-overlay" @click.self="closeApplyModal">
       <div class="apply-card">
@@ -230,6 +290,18 @@ const handleStartApplicantContract = ({ job, applicant }) => {
           <button class="primary-btn" type="button" @click="handleJobApplication">Envoyer & partager</button>
         </div>
       </div>
+    </div>
+
+    <div v-if="showContractModal" class="overlay" @click.self="closeContractModal">
+      <ContractCreationModal
+        :employers="employerOptions"
+        @close="closeContractModal"
+        @submit="handleContractSubmit"
+      />
+    </div>
+
+    <div v-if="showContractViewer && activeContractPreview" class="overlay" @click.self="closeContractViewer">
+      <ContractPreviewModal :contract="activeContractPreview" @close="closeContractViewer" />
     </div>
   </div>
 </template>
@@ -355,6 +427,12 @@ const handleStartApplicantContract = ({ job, applicant }) => {
   margin: 12px 0 22px;
 }
 
+.admin-cta {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 18px;
+}
+
 .tab {
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(120, 90, 255, 0.18);
@@ -391,7 +469,8 @@ const handleStartApplicantContract = ({ job, applicant }) => {
   }
 }
 
-.apply-overlay {
+.apply-overlay,
+.overlay {
   position: fixed;
   inset: 0;
   background: rgba(2, 6, 16, 0.78);
