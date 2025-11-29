@@ -1,24 +1,148 @@
 <script setup>
-const emit = defineEmits(['proceed'])
+import { ref } from "vue"
+import axios from "axios"
 
-const handleProceed = () => {
-  emit('proceed')
+const mode = ref("login")          // "login" ou "register"
+const username = ref("")           // utilisé seulement en register
+const emit = defineEmits(["connected"])
+
+// ==================================================
+//  ➤ FONCTIONS WEB3 : ETHEREUM (Metamask)
+// ==================================================
+async function connectMetamask() {
+  if (!window.ethereum) {
+    alert("⚠️ Installe Metamask.")
+    return null
+  }
+
+  const accounts = await window.ethereum.request({
+    method: "eth_requestAccounts"
+  })
+
+  return accounts[0]
+}
+
+async function signMessageETH(message) {
+  return await window.ethereum.request({
+    method: "personal_sign",
+    params: [message, window.ethereum.selectedAddress]
+  })
+}
+
+// ==================================================
+//  ➤ FONCTIONS WEB3 : SOLANA (Phantom)
+// ==================================================
+async function connectPhantom() {
+  if (!window.solana?.isPhantom) {
+    alert("⚠️ Installe Phantom Wallet.")
+    return null
+  }
+
+  const resp = await window.solana.connect()
+  return resp.publicKey.toString()
+}
+
+async function signMessageSOL(message) {
+  // Phantom attend un Uint8Array
+  const encoded = new TextEncoder().encode(message)
+  const signed = await window.solana.signMessage(encoded, "utf8")
+
+  // On renvoie la signature en hex (backend attend hex)
+  return Buffer.from(signed.signature).toString("hex")
+}
+
+// ==================================================
+//  ➤ FLUX COMPLET LOGIN / REGISTER
+// ==================================================
+async function handleProceed() {
+  let walletAddress = null
+  let chain = null
+
+  // 1️⃣ Détection du wallet ETH ou SOL
+  if (window.ethereum) {
+    walletAddress = await connectMetamask()
+    chain = "ethereum"
+  } else if (window.solana?.isPhantom) {
+    walletAddress = await connectPhantom()
+    chain = "solana"
+  } else {
+    alert("⚠️ Aucun wallet Web3 détecté.")
+    return
+  }
+
+  // 2️⃣ Demander le nonce au backend
+  const nonceRes = await axios.post("http://localhost:8000/auth/nonce", {
+    walletAddress,
+    chain,
+    username: mode.value === "register" ? username.value : null
+  })
+
+  const nonce = nonceRes.data.nonce
+  const message = `Login nonce: ${nonce}`
+
+  // 3️⃣ Le wallet signe le message
+  let signature
+  if (chain === "ethereum") signature = await signMessageETH(message)
+  else signature = await signMessageSOL(message)
+
+  // 4️⃣ Vérification backend
+  const verifyRes = await axios.post("http://localhost:8000/auth/verify", {
+    walletAddress,
+    signature
+  })
+
+  const token = verifyRes.data.token
+  const user = verifyRes.data.user
+
+  // 5️⃣ Renvoie au parent
+  emit("connected", {
+    token,
+    walletAddress,
+    chain,
+    user,
+  })
+}
+
+function setRegister() {
+  mode.value = "register"
+}
+
+function setLogin() {
+  mode.value = "login"
 }
 </script>
 
 <template>
   <section class="auth">
     <div class="card">
-      <div class="icon">
-        <span>WORK</span>
-      </div>
+
+      <div class="icon"><span>WORK</span></div>
+
       <h1>Connexion Web3</h1>
-      <p class="lead">Connecte-toi ou cree un compte via ton wallet decentralise.</p>
-      <button class="btn primary" type="button" @click="handleProceed">Connecter mon wallet</button>
-      <button class="link" type="button" @click="handleProceed">Creer un compte</button>
+      <p class="lead">Connecte-toi ou crée un compte via ton wallet décentralisé.</p>
+
+      <!-- Nom d'utilisateur uniquement en register -->
+      <div v-if="mode === 'register'" class="form-group">
+        <label>Nom d’utilisateur</label>
+        <input type="text" v-model="username" placeholder="ex: Mina Chen" />
+      </div>
+
+      <button class="btn primary" @click="handleProceed">
+        {{ mode === "login" ? "Connecter mon wallet" : "Créer mon compte" }}
+      </button>
+
+      <button class="link" v-if="mode === 'login'" @click="setRegister">
+        Créer un compte
+      </button>
+
+      <button class="link" v-if="mode === 'register'" @click="setLogin">
+        J’ai déjà un compte
+      </button>
+
     </div>
   </section>
 </template>
+
 
 <style scoped>
 .auth {
