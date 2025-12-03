@@ -1,129 +1,66 @@
 <script setup>
 import { ref } from "vue"
-import axios from "axios"
+import { useAuthStore } from "../store/auth"
 
-const mode = ref("login")          // "login" ou "register"
-const username = ref("")           // utilisé seulement en register
+function getMetaMask() {
+  const eth = window.ethereum
+  if (!eth) return null
+  if (eth.providers?.length) {
+    const mm = eth.providers.find((p) => p.isMetaMask && !p.isCoinbaseWallet)
+    if (mm) return mm
+  }
+  return eth.isMetaMask && !eth.isCoinbaseWallet ? eth : null
+}
+
+const auth = useAuthStore()
 const emit = defineEmits(["connected"])
+const mode = ref("login")
+const username = ref("")
 
-// ==================================================
-//  ➤ FONCTIONS WEB3 : ETHEREUM (Metamask)
-// ==================================================
 async function connectMetamask() {
-  if (!window.ethereum) {
-    alert("⚠️ Installe Metamask.")
+  const eth = getMetaMask()
+  if (!eth) {
+    alert("Installe Metamask.")
     return null
   }
 
-  const accounts = await window.ethereum.request({
-    method: "eth_requestAccounts"
+  const accounts = await eth.request({
+    method: "eth_requestAccounts",
   })
 
   return accounts[0]
 }
 
-async function signMessageETH(message) {
-  return await window.ethereum.request({
-    method: "personal_sign",
-    params: [message, window.ethereum.selectedAddress]
-  })
-}
-
-// ==================================================
-//  ➤ FONCTIONS WEB3 : SOLANA (Phantom)
-// ==================================================
-async function connectPhantom() {
-  if (!window.solana?.isPhantom) {
-    alert("⚠️ Installe Phantom Wallet.")
-    return null
-  }
-
-  const resp = await window.solana.connect()
-  return resp.publicKey.toString()
-}
-
-async function signMessageSOL(message) {
-  // Phantom attend un Uint8Array
-  const encoded = new TextEncoder().encode(message)
-  const signed = await window.solana.signMessage(encoded, "utf8")
-
-  // On renvoie la signature en hex (backend attend hex)
-  return Buffer.from(signed.signature).toString("hex")
-}
-
-// ==================================================
-//  ➤ FLUX COMPLET LOGIN / REGISTER
-// ==================================================
 async function handleProceed() {
   let walletAddress = null
-  let chain = null
+  const chain = "ethereum-mainnet"
 
-  // 1️⃣ Détection du wallet ETH ou SOL
-  if (window.ethereum) {
-    walletAddress = await connectMetamask()
-    chain = "ethereum"
-  } else if (window.solana?.isPhantom) {
-    walletAddress = await connectPhantom()
-    chain = "solana"
-  } else {
-    alert("⚠️ Aucun wallet Web3 détecté.")
-    return
-  }
+  walletAddress = await connectMetamask()
+  if (!walletAddress) return
 
-  // 2️⃣ Demander le nonce au backend
-  const nonceRes = await axios.post("http://localhost:8000/auth/nonce", {
+  const res = await auth.loginWithWallet({
     walletAddress,
     chain,
-    username: mode.value === "register" ? username.value : null
+    username: mode.value === "register" ? username.value : null,
   })
 
-  const nonce = nonceRes.data.nonce
-  const message = `Login nonce: ${nonce}`
-
-  // 3️⃣ Le wallet signe le message
-  let signature
-  if (chain === "ethereum") signature = await signMessageETH(message)
-  else signature = await signMessageSOL(message)
-
-  // 4️⃣ Vérification backend
-  const verifyRes = await axios.post("http://localhost:8000/auth/verify", {
-    walletAddress,
-    signature
-  })
-
-  const token = verifyRes.data.token
-  const user = verifyRes.data.user
-
-  // 5️⃣ Renvoie au parent
   emit("connected", {
-    token,
-    walletAddress,
-    chain,
-    user,
+    token: res.token,
+    user: res.user,
   })
-}
-
-function setRegister() {
-  mode.value = "register"
-}
-
-function setLogin() {
-  mode.value = "login"
 }
 </script>
 
 <template>
   <section class="auth">
     <div class="card">
-
       <div class="icon"><span>WORK</span></div>
 
       <h1>Connexion Web3</h1>
-      <p class="lead">Connecte-toi ou crée un compte via ton wallet décentralisé.</p>
+      <p class="lead">Connecte-toi ou crées un compte via ton wallet.</p>
 
-      <!-- Nom d'utilisateur uniquement en register -->
       <div v-if="mode === 'register'" class="form-group">
-        <label>Nom d’utilisateur</label>
+        <label>Nom d'utilisateur</label>
         <input type="text" v-model="username" placeholder="ex: Mina Chen" />
       </div>
 
@@ -131,18 +68,16 @@ function setLogin() {
         {{ mode === "login" ? "Connecter mon wallet" : "Créer mon compte" }}
       </button>
 
-      <button class="link" v-if="mode === 'login'" @click="setRegister">
+      <button class="link" v-if="mode === 'login'" @click="mode = 'register'">
         Créer un compte
       </button>
 
-      <button class="link" v-if="mode === 'register'" @click="setLogin">
-        J’ai déjà un compte
+      <button class="link" v-if="mode === 'register'" @click="mode = 'login'">
+        J'ai déjà un compte
       </button>
-
     </div>
   </section>
 </template>
-
 
 <style scoped>
 .auth {
@@ -170,7 +105,7 @@ function setLogin() {
 }
 
 .card::before {
-  content: '';
+  content: "";
   position: absolute;
   inset: -30% -20% auto -20%;
   height: 50%;
@@ -209,6 +144,27 @@ h1 {
 .lead {
   color: #9eb2d6;
   text-align: center;
+  margin-bottom: 10px;
+}
+
+.form-group {
+  width: 100%;
+}
+
+.form-group label {
+  display: block;
+  color: #cdd8f5;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.form-group input {
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(120, 90, 255, 0.4);
+  color: white;
 }
 
 .btn.primary {
@@ -222,20 +178,12 @@ h1 {
   font-weight: 800;
   cursor: pointer;
   box-shadow: 0 18px 36px rgba(0, 102, 255, 0.35);
-  transition: transform 0.1s ease, box-shadow 0.1s ease;
+  transition: 0.1s ease;
 }
 
 .btn.primary:hover {
   transform: translateY(-1px);
   box-shadow: 0 20px 40px rgba(0, 102, 255, 0.42);
-}
-
-.btn.primary:active {
-  transform: translateY(0);
-}
-
-.btn {
-  font: inherit;
 }
 
 .link {
@@ -244,6 +192,7 @@ h1 {
   color: #8ad4ff;
   font-weight: 700;
   cursor: pointer;
+  margin-top: 4px;
 }
 .link:hover {
   color: #b4e4ff;

@@ -1,163 +1,169 @@
 <script setup>
-import { computed, ref } from 'vue'
-import OverviewSection from './OverviewSection.vue'
-import ContractsSection from './ContractsSection.vue'
-import JobsSection from './JobsSection.vue'
-import RechargerJobsSection from './RechargerJobsSection.vue'
-import MessagesSection from './MessagesSection.vue'
-import ProfileSection from './ProfileSection.vue'
-import DaoDisputesSection from './DaoDisputesSection.vue'
-import AdminSection from './AdminSection.vue'
-import ContractCreationModal from './ContractCreationModal.vue'
-import ContractPreviewModal from './ContractPreviewModal.vue'
-import {
-  summaryCards,
-  overviewData,
-  contractData,
-  jobData,
-  messagesData,
-  profileData,
-  daoDisputes,
-  adminSummaryCards,
-  adminTransactions,
-} from '../store/dashboardData'
+import { ref, computed, onMounted } from "vue"
+import { useAuthStore } from "../store/auth"
+import api from "../services/api"
 
-const tabs = ['Overview', 'Contracts', 'My Jobs', 'Find a job', 'Messages', 'Profile', 'DAO', 'Admin']
-const activeTab = ref('Overview')
-const profile = ref(JSON.parse(JSON.stringify(profileData)))
-const normalizeJob = (job) => ({ applied: false, ...job })
-const jobs = ref(jobData.map((job) => normalizeJob(job)))
-const conversations = ref(messagesData.conversations.map((c) => ({ ...c })))
-const activeContracts = ref(contractData.map((contract) => ({ ...contract })))
-const employerOptions = computed(() => [...new Set(conversations.value.map((c) => c.name))])
-const threads = ref(
-  Object.fromEntries(
-    Object.entries(messagesData.threads || {}).map(([name, list]) => [name, list.map((msg) => ({ ...msg }))])
-  )
-)
-const activeConversation = ref(conversations.value[0] || null)
-const showApplyModal = ref(false)
-const selectedJob = ref(null)
-const applyMessage = ref('')
-const showContractModal = ref(false)
-const showContractViewer = ref(false)
-const activeContractPreview = ref(null)
+// SECTIONS
+import OverviewSection from "./OverviewSection.vue"
+import ContractsSection from "./ContractsSection.vue"
+import JobsSection from "./JobsSection.vue"
+import RechargerJobsSection from "./RechargerJobsSection.vue"
+import MessagesSection from "./MessagesSection.vue"
+import ProfileSection from "./ProfileSection.vue"
+import DaoDisputesSection from "./DaoDisputesSection.vue"
+import AdminSection from "./AdminSection.vue"
+import ContractCreationModal from "./ContractCreationModal.vue"
+import ContractPreviewModal from "./ContractPreviewModal.vue"
 
+// ==========================
+// 🔥 STORE AUTH
+// ==========================
+const auth = useAuthStore()
+
+// ==========================
+// ✅ TABS
+// ==========================
+const tabs = [
+  "Overview",
+  "Contracts",
+  "My Jobs",
+  "Find a job",
+  "Messages",
+  "Profile",
+  "DAO",
+  "Admin",
+]
+
+const activeTab = ref("Overview")
+
+// ==========================
+// 📌 PROFIL (vient du wallet)
+// ==========================
+const profile = computed(() => ({
+  username: auth.user?.username || "User",
+  wallet: auth.user?.walletAddress,
+  chain: auth.user?.chain,
+}))
+
+// ==========================
+// 📌 CONTRATS (EMPTY → backend va remplir)
+// ==========================
+const activeContracts = ref([])
+
+// ==========================
+// 📌 JOBS (EMPTY → backend)
+// ==========================
+const jobs = ref([])
+
+// ==========================
+// 📌 MESSAGES (EMPTY → backend)
+// ==========================
+const conversations = ref([])
+const threads = ref({})
+const activeConversation = ref(null)
+
+// ==========================
+// 📌 DAO DISPUTES (EMPTY → backend)
+// ==========================
+const daoDisputes = ref([])
+
+// ==========================
+// 📌 ADMIN PANELS
+// ==========================
+const adminStats = ref([])
+const adminTransactions = ref([])
+
+const employers = ref([])
+const freelancerWallet = computed(() => auth.user?.walletAddress || "")
+
+const walletConfig = ref({
+  usdcAddress: "",
+  escrowAddress: "",
+  chainId: "",
+  chain: "",
+})
+
+const escrowAddress = computed(() => walletConfig.value.escrowAddress || "")
+const usdcAddress = computed(() => walletConfig.value.usdcAddress || "")
+
+// ==========================
+// ACTIONS
+// ==========================
 const setTab = (tab) => {
   activeTab.value = tab
 }
 
-const handleProfileSave = (updatedProfile) => {
-  profile.value = JSON.parse(JSON.stringify(updatedProfile))
+// SAVE PROFILE
+const handleProfileSave = (updated) => {
+  // update backend
+  console.log("Profile save:", updated)
 }
 
-const selectConversation = (conversation) => {
-  activeConversation.value = conversation
-  if (!threads.value[conversation.name]) {
-    threads.value = { ...threads.value, [conversation.name]: [] }
+// ==========================
+// MESSAGES
+// ==========================
+const selectConversation = (c) => {
+  activeConversation.value = c
+  if (!threads.value[c.name]) {
+    threads.value[c.name] = []
   }
 }
 
 const handleSendMessage = (text) => {
   if (!activeConversation.value || !text.trim()) return
-  const convoName = activeConversation.value.name
-  const thread = threads.value[convoName] || []
-  const newMessage = {
+
+  const convo = activeConversation.value.name
+  const msg = {
     id: Date.now(),
-    from: 'me',
-    author: 'You',
-    text: text.trim(),
-    time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    from: "me",
+    author: auth.user.username,
+    text,
+    time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
   }
-  const updatedThread = [...thread, newMessage]
-  threads.value = { ...threads.value, [convoName]: updatedThread }
-  conversations.value = conversations.value.map((c) =>
-    c.name === convoName ? { ...c, lastMessage: 'Just now' } : c
-  )
+
+  threads.value[convo].push(msg)
 }
 
+// ==========================
+// JOBS (APPLY)
+// ==========================
+const showApplyModal = ref(false)
+const selectedJob = ref(null)
+const applyMessage = ref("")
+
 const startApply = (job) => {
-  if (job.applied) return
   selectedJob.value = job
-  applyMessage.value = `Hi ${job.company}, I'd like to apply for ${job.title}. Sharing my profile and availability.`
+  applyMessage.value = ""
   showApplyModal.value = true
 }
 
 const closeApplyModal = () => {
   showApplyModal.value = false
   selectedJob.value = null
-  applyMessage.value = ''
+  applyMessage.value = ""
 }
 
 const handleJobApplication = () => {
-  if (!selectedJob.value) return
-  // Message et profil packagés pour l'offreur ; la conversation ne démarre que lorsqu'il répond.
-  const baseMessage =
-    applyMessage.value.trim() ||
-    `I would like to apply for ${selectedJob.value.title} at ${selectedJob.value.company}.`
-  const profileSummary = profile.value
-    ? `Profile: ${profile.value.name} — ${profile.value.title} | Rate ${profile.value.rate} | Availability ${profile.value.availability} | Skills: ${(profile.value.skills || []).slice(0, 3).join(', ')}`
-    : 'Profile shared.'
-  const finalText = `${baseMessage} — ${profileSummary}`
-  // Ici on stopperait l'envoi automatique vers Messages. À brancher côté recruteur pour initier la conversation.
-  console.debug('Application prepared for employer:', {
+  console.log("Job application:", {
     job: selectedJob.value,
-    message: finalText,
+    message: applyMessage.value,
+    wallet: auth.user.walletAddress,
   })
-  // Flag job as applied (UI disables buttons and shows badge)
-  const targetKey = selectedJob.value.id || `${selectedJob.value.company}-${selectedJob.value.title}`
-  jobs.value = jobs.value.map((job) => {
-    const jobKey = job.id || `${job.company}-${job.title}`
-    return jobKey === targetKey ? { ...job, applied: true } : job
-  })
-  selectedJob.value = null
   closeApplyModal()
 }
 
-const startConversationWithApplicant = ({ job, applicant }) => {
-  if (!applicant || !applicant.name) return
-  const convoName = applicant.name
-  const existing = conversations.value.find((c) => c.name === convoName)
-  if (!existing) {
-    conversations.value = [...conversations.value, { name: convoName, lastMessage: 'Just now' }]
-  } else {
-    conversations.value = conversations.value.map((c) =>
-      c.name === convoName ? { ...c, lastMessage: 'Just now' } : c
-    )
-  }
-
-  const thread = threads.value[convoName] || []
-  const introMessage = `Bonjour ${applicant.name}, merci pour ta candidature sur ${job.title}. Dispo pour échanger ?`
-  const newMessage = {
-    id: Date.now(),
-    from: 'me',
-    author: 'You',
-    text: introMessage,
-    time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-  }
-  threads.value = { ...threads.value, [convoName]: [...thread, newMessage] }
-  activeConversation.value = conversations.value.find((c) => c.name === convoName) || activeConversation.value
-  activeTab.value = 'Messages'
-}
-
-const handleRejectApplicant = ({ job, applicant }) => {
-  const key = job.id || `${job.company}-${job.title}`
-  jobs.value = jobs.value.map((item) => {
-    const itemKey = item.id || `${item.company}-${item.title}`
-    if (itemKey !== key) return item
-    const filtered = (item.applicants || []).filter(
-      (cand) => (cand.id || cand.name) !== (applicant.id || applicant.name)
-    )
-    return { ...item, applicants: filtered }
-  })
-}
-
-const handleStartApplicantContract = ({ job, applicant }) => {
-  // Placeholder: in a real app, trigger contract creation flow
-  console.debug('Start contract with applicant', { job, applicant })
-}
+// ==========================
+// CONTRACTS MODALS
+// ==========================
+const showContractModal = ref(false)
+const showContractViewer = ref(false)
+const activeContractPreview = ref(null)
 
 const openContractModal = () => {
+  if (!walletConfig.value.usdcAddress || !walletConfig.value.escrowAddress) {
+    alert("Config USDC/Escrow manquante ou mal nommée (backend /api/wallet/config).")
+    return
+  }
   showContractModal.value = true
 }
 
@@ -175,73 +181,130 @@ const closeContractViewer = () => {
   activeContractPreview.value = null
 }
 
-const formatTimelineRange = (start, end) => {
-  if (!start && !end) return ''
-  return [start, end].filter(Boolean).join(' → ')
-}
-
+// SUBMIT NEW CONTRACT
 const handleContractSubmit = (payload) => {
-  const newContract = {
-    name: payload.title,
-    client: payload.employer,
-    amount: payload.price,
-    period: formatTimelineRange(payload.timeline.start, payload.timeline.end),
-    timeline: { ...payload.timeline },
-    description: payload.description,
-    checkpoints: payload.checkpoints,
-    status: 'pending',
-  }
-  activeContracts.value = [{ ...newContract }, ...activeContracts.value]
-  console.debug('Contract creation requested', payload)
+  console.log("Create contract:", payload)
+  activeContracts.value.push(payload)
   closeContractModal()
 }
+
+async function loadMyContracts() {
+  try {
+    const { data } = await api.get("/api/contracts/me")
+    activeContracts.value = data || []
+  } catch (e) {
+    console.error("Load contracts failed", e)
+  }
+}
+
+async function loadEmployers() {
+  try {
+    const { data } = await api.get("/users")
+    const mapped = (data || []).map((u) => ({
+      uuid: u.uuid,
+      label: u.username || u.walletAddress,
+      walletAddress: u.walletAddress,
+    }))
+    if (auth.user && !mapped.some((u) => u.uuid === auth.user.uuid)) {
+      mapped.unshift({
+        uuid: auth.user.uuid,
+        label: auth.user.username || "Client",
+        walletAddress: auth.user.walletAddress,
+      })
+    }
+    employers.value = mapped
+  } catch (e) {
+    console.error("Load employers failed", e)
+    if (auth.user) {
+      employers.value = [{
+        uuid: auth.user.uuid,
+        label: auth.user.username || "Client",
+        walletAddress: auth.user.walletAddress,
+      }]
+    }
+  }
+}
+
+async function loadWalletConfig() {
+  try {
+    const { data } = await api.get("/api/wallet/config")
+    const cfg = data || {}
+    walletConfig.value = {
+      usdcAddress: cfg.usdcAddress || cfg.usdc_address || "",
+      escrowAddress: cfg.escrowAddress || cfg.escrow_address || "",
+      chainId: cfg.chainId || cfg.chain_id || "",
+      chain: cfg.chain || cfg.chain_slug || "",
+    }
+    console.log("Wallet config loaded:", walletConfig.value)
+  } catch (e) {
+    console.error("Load wallet config failed", e)
+  }
+}
+
+onMounted(() => {
+  loadWalletConfig()
+  if (auth.isLogged) {
+    loadMyContracts()
+    loadEmployers()
+  }
+})
 </script>
 
 <template>
   <div class="page">
+
+    <!-- =======================
+         🔥 HEADER
+    ======================== -->
     <header class="top-bar">
       <div class="work-pill">WORK</div>
-      <div class="profile">JD</div>
+
+      <div class="profile">
+        {{ profile.username }}
+      </div>
     </header>
 
-    <section v-if="activeTab !== 'Admin'" class="metrics">
-      <article v-for="card in summaryCards" :key="card.title" class="metric-card">
-        <div class="metric-top">
-          <p class="metric-label">{{ card.title }}</p>
-          <div class="metric-icon" :data-icon="card.icon" />
-        </div>
-        <p class="metric-value">{{ card.value }}</p>
-        <p class="metric-change" :class="card.trend">{{ card.change }}</p>
-      </article>
-    </section>
-
+    <!-- =======================
+         🔥 NAVIGATION
+    ======================== -->
     <nav class="tabs">
-      <button v-for="tab in tabs" :key="tab" :class="['tab', { active: tab === activeTab }]" @click="setTab(tab)">
+      <button
+        v-for="tab in tabs"
+        :key="tab"
+        :class="['tab', { active: activeTab === tab }]"
+        @click="setTab(tab)"
+      >
         {{ tab }}
       </button>
     </nav>
 
+    <!-- =======================
+         🔥 SECTIONS
+    ======================== -->
+
     <OverviewSection
       v-if="activeTab === 'Overview'"
-      :projects="overviewData.projects"
-      :transactions="overviewData.transactions"
     />
+
     <ContractsSection
       v-else-if="activeTab === 'Contracts'"
       :contracts="activeContracts"
       @create-contract="openContractModal"
       @view-contract="openContractViewer"
     />
+
     <JobsSection
       v-else-if="activeTab === 'My Jobs'"
       :jobs="jobs"
       @apply-job="startApply"
-      @start-applicant-conversation="startConversationWithApplicant"
-      @reject-applicant="handleRejectApplicant"
-      @start-applicant-contract="handleStartApplicantContract"
     />
-    <RechargerJobsSection v-else-if="activeTab === 'Find a job'" :jobs="jobs" @apply-job="startApply" />
-    <DaoDisputesSection v-else-if="activeTab === 'DAO'" :disputes="daoDisputes" />
+
+    <RechargerJobsSection
+      v-else-if="activeTab === 'Find a job'"
+      :jobs="jobs"
+      @apply-job="startApply"
+    />
+
     <MessagesSection
       v-else-if="activeTab === 'Messages'"
       :conversations="conversations"
@@ -250,61 +313,64 @@ const handleContractSubmit = (payload) => {
       @select-conversation="selectConversation"
       @send-message="handleSendMessage"
     />
-    <ProfileSection v-else-if="activeTab === 'Profile'" :profile="profile" @save-profile="handleProfileSave" />
+
+    <ProfileSection
+      v-else-if="activeTab === 'Profile'"
+      :profile="profile"
+      @save-profile="handleProfileSave"
+    />
+
+    <DaoDisputesSection
+      v-else-if="activeTab === 'DAO'"
+      :disputes="daoDisputes"
+    />
+
     <AdminSection
       v-else
-      :cards="adminSummaryCards"
+      :cards="adminStats"
       :disputes="daoDisputes"
       :transactions="adminTransactions"
     />
 
+    <!-- APPLY MODAL -->
     <div v-if="showApplyModal" class="apply-overlay" @click.self="closeApplyModal">
       <div class="apply-card">
         <header class="apply-head">
-          <div>
-            <p class="eyebrow">Apply to</p>
-            <h3>{{ selectedJob ? selectedJob.title : '' }} @ {{ selectedJob ? selectedJob.company : '' }}</h3>
-            <p class="muted">Ajoute un message. Ton profil sera partagé automatiquement.</p>
-          </div>
-          <button class="close-btn" type="button" @click="closeApplyModal">x</button>
+          <h3>{{ selectedJob?.title }}</h3>
+          <button @click="closeApplyModal">x</button>
         </header>
-
-        <label class="field">
-          <span>Message</span>
-          <textarea
-            v-model="applyMessage"
-            rows="4"
-            placeholder="Présente ton intérêt, dispo et pourquoi tu es adapté."
-          ></textarea>
-        </label>
-
-        <div class="profile-share">
-          <p class="label">Profil partagé</p>
-          <p class="value">{{ profile.name }} — {{ profile.title }}</p>
-          <p class="muted">Rate: {{ profile.rate }} | Availability: {{ profile.availability }}</p>
-          <p class="muted">Skills: {{ (profile.skills || []).slice(0, 4).join(', ') }}</p>
-        </div>
-
-        <div class="apply-actions">
-          <button class="ghost-btn" type="button" @click="closeApplyModal">Annuler</button>
-          <button class="primary-btn" type="button" @click="handleJobApplication">Envoyer & partager</button>
-        </div>
+        <textarea v-model="applyMessage" rows="4"></textarea>
+        <button class="primary-btn" @click="handleJobApplication">
+          Envoyer
+        </button>
       </div>
     </div>
 
-    <div v-if="showContractModal" class="overlay" @click.self="closeContractModal">
+    <!-- CONTRACT CREATION -->
+      <div v-if="showContractModal" class="overlay" @click.self="closeContractModal">
       <ContractCreationModal
-        :employers="employerOptions"
+        :employers="employers"
+        :freelancer-wallet="freelancerWallet"
+        :escrow-address="escrowAddress"
+        :usdc-address="usdcAddress"
+        :chain-id="walletConfig.chainId"
+        :chain="walletConfig.chain"
+        @created="handleContractSubmit"
         @close="closeContractModal"
-        @submit="handleContractSubmit"
       />
     </div>
 
-    <div v-if="showContractViewer && activeContractPreview" class="overlay" @click.self="closeContractViewer">
-      <ContractPreviewModal :contract="activeContractPreview" @close="closeContractViewer" />
+    <!-- CONTRACT VIEWER -->
+    <div v-if="showContractViewer" class="overlay" @click.self="closeContractViewer">
+      <ContractPreviewModal
+        :contract="activeContractPreview"
+        @close="closeContractViewer"
+      />
     </div>
+
   </div>
 </template>
+
 
 <style scoped>
 .page {
