@@ -62,3 +62,12 @@ body {
     0 0 10px rgba(45, 130, 255, 0.45),
     inset 0 0 6px rgba(255, 255, 255, 0.18);
 }
+.date-grid input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Désactive le ::after global ajouté sur les labels */
+label::after {
+  content: none !important;
+}

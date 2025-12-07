@@ -18,11 +18,11 @@ import {
 } from "../services/solana"
 
 const props = defineProps({
-  employers: Array, // [{ uuid, label, walletAddress }]
-  freelancerWallet: String,
+  employers: Array,          
+  freelancerWallet: String,  
   programId: String,
   usdcMint: String,
-  network: String, // ex: "solana-devnet"
+  network: String,           
   rpcUrl: String,
   admin1: String,
   admin2: String,
@@ -30,15 +30,20 @@ const props = defineProps({
 
 const emit = defineEmits(["close", "created"])
 
+// --------------------------------------------------
+// FORMULAIRE
+// --------------------------------------------------
 const form = reactive({
   title: "",
   description: "",
   checkpoints: "",
   timeline: { start: "", end: "" },
   employer: null,
-  price: 0,
 })
 
+// --------------------------------------------------
+// PICKER DATES
+// --------------------------------------------------
 const startInput = ref(null)
 const endInput = ref(null)
 let startPicker = null
@@ -49,9 +54,11 @@ const txStatus = ref("")
 const usdcBalance = ref(0)
 const initializerAta = ref(null)
 const walletAddress = ref("")
+const finalAmountFromTx = ref(0)
 
 const usdcMintMissing = computed(() => !props.usdcMint)
 const programIdMissing = computed(() => !props.programId)
+
 const phantomReady = computed(() => !!walletAddress.value)
 
 const todayIso = computed(() => new Date().toISOString().split("T")[0])
@@ -62,7 +69,6 @@ const canSubmit = computed(() => {
     form.description &&
     form.checkpoints &&
     form.employer &&
-    Number(form.price) > 0 &&
     form.timeline.start &&
     form.timeline.end &&
     !loading.value &&
@@ -71,6 +77,9 @@ const canSubmit = computed(() => {
   )
 })
 
+// --------------------------------------------------
+// UTILS
+// --------------------------------------------------
 const normalizeIso = (date) => {
   if (!date) return ""
   const d = typeof date === "string" ? new Date(date) : date
@@ -99,25 +108,20 @@ async function ensurePhantom() {
   return { phantom, publicKey }
 }
 
-/**
- * Charge le solde USDC de l'employeur connecté
- */
+// --------------------------------------------------
+// SOLDE USDC DE L'EMPLOYEUR
+// --------------------------------------------------
 async function loadUsdcBalance() {
   try {
-    if (usdcMintMissing.value) {
-      txStatus.value = "Mint USDC manquant."
-      return
-    }
+    if (usdcMintMissing.value) return
 
     txStatus.value = "Connexion Phantom..."
     const { publicKey } = await ensurePhantom()
-    if (!publicKey) {
-      txStatus.value = "Wallet requis."
-      return
-    }
+    if (!publicKey) return
 
     const connection = getConnection(props.rpcUrl)
-    txStatus.value = "Lecture du solde USDC..."
+    txStatus.value = "Lecture solde USDC..."
+
     const balanceInfo = await getUsdcBalance({
       wallet: publicKey,
       mintAddress: props.usdcMint,
@@ -126,43 +130,33 @@ async function loadUsdcBalance() {
 
     initializerAta.value = balanceInfo.ata
     usdcBalance.value = balanceInfo.amount
+
     txStatus.value = ""
   } catch (e) {
     console.error("Balance Error:", e)
-    txStatus.value = "Erreur solde USDC. Voir console."
+    txStatus.value = "Erreur solde USDC."
     usdcBalance.value = 0
   }
 }
 
+// --------------------------------------------------
+// SOUMISSION DU FORMULAIRE + TX SOLANA
+// --------------------------------------------------
 async function submitForm() {
   if (!canSubmit.value) return
-  if (form.timeline.start < todayIso.value)
-    return alert("Start date invalid.")
-  if (form.timeline.end && form.timeline.end < form.timeline.start) {
-    return alert("End date must be after start date.")
-  }
 
   try {
     loading.value = true
     txStatus.value = "Connexion Phantom..."
 
     const { phantom, publicKey } = await ensurePhantom()
-    if (!publicKey) {
-      alert("Connexion wallet requise.")
-      return
-    }
+    if (!publicKey) return alert("Wallet requis.")
 
     if (
       form.employer.walletAddress &&
       form.employer.walletAddress !== publicKey.toBase58()
     ) {
-      alert("Le wallet connecté ne correspond pas à l'employeur sélectionné.")
-      return
-    }
-
-    if (usdcMintMissing.value || programIdMissing.value) {
-      alert("Mint USDC ou ProgramId manquant.")
-      return
+      return alert("Le wallet connecté ≠ employeur sélectionné.")
     }
 
     const connection = getConnection(props.rpcUrl)
@@ -173,24 +167,23 @@ async function submitForm() {
     const admin1Pk = props.admin1 ? new PublicKey(props.admin1) : publicKey
     const admin2Pk = props.admin2 ? new PublicKey(props.admin2) : publicKey
 
-    // PDA escrow + vault
     const { escrowStatePda, vaultPda } = await findEscrowPdas(
       program.programId,
       publicKey,
-      workerPk,
+      workerPk
     )
 
     const ataAddress = initializerAta.value
-    if (!ataAddress) {
-      txStatus.value = "ATA USDC introuvable pour l'employeur."
-      return
-    }
+    if (!ataAddress) return alert("ATA USDC introuvable.")
 
-    // 1️⃣ Appel on-chain : initializeEscrow (ton programme gère le transfert USDC)
-    txStatus.value = "On-chain: initialize_escrow..."
+    // --------------------------------------------------
+    // 1️⃣ PHANTOM CHOISIT LE MONTANT → initializeEscrow SANS amount
+    // --------------------------------------------------
+    txStatus.value = "Ouvre Phantom pour entrer le montant…"
+
     const signature = await initializeEscrow({
       program,
-      amountUsdc: form.price,
+      amountUsdc: null,      // 🔥 montant choisi dans Phantom
       initializer: publicKey,
       worker: workerPk,
       admin1: admin1Pk,
@@ -202,11 +195,27 @@ async function submitForm() {
       feeBps: 500,
     })
 
-    console.log("InitializeEscrow tx:", signature)
+    console.log("InitializeEscrow TX:", signature)
 
-    // 2️⃣ Enregistrement backend
-    txStatus.value = "Enregistrement backend..."
+    // --------------------------------------------------
+    // 2️⃣ Détection automatique du montant transféré
+    // --------------------------------------------------
+    const parsed = await connection.getParsedTransaction(signature, {
+      maxSupportedTransactionVersion: 0,
+    })
 
+    const transferIx = parsed?.transaction?.message?.instructions?.find(
+      (ix) => ix.parsed?.type === "transferChecked"
+    )
+
+    if (!transferIx) throw new Error("Impossible de lire le montant transféré.")
+
+    finalAmountFromTx.value = transferIx.parsed.info.tokenAmount.uiAmount
+    console.log("Montant détecté:", finalAmountFromTx.value)
+
+    // --------------------------------------------------
+    // 3️⃣ Envoi backend
+    // --------------------------------------------------
     const checkpointsArray = form.checkpoints
       ? form.checkpoints
           .split("\n")
@@ -222,26 +231,22 @@ async function submitForm() {
         start: form.timeline.start,
         end: form.timeline.end,
       },
-      amountUsdc: form.price,
+      amountUsdc: finalAmountFromTx.value, // 🔥 montant blockchain
       employerUuid: form.employer.uuid,
       employerWallet: publicKey.toBase58(),
       freelancerWallet: props.freelancerWallet,
-      // pour compat backend actuel
-      txHash: signature, // le contrôleur attend txHash
-      escrowIdOnChain: null,
-      chain: props.network || "solana-devnet",
-      // bonus: infos supplémentaires si tu les ajoutes dans l'Entity plus tard
+
+      txSig: signature,  // 🔥 le backend attend txSig
       escrowStatePda: escrowStatePda.toBase58(),
       vaultPda: vaultPda.toBase58(),
-      programId: props.programId,
-      usdcMint: props.usdcMint,
+      chain: props.network || "solana-devnet",
     })
 
     txStatus.value = "Contrat créé."
     emit("created", res.data)
   } catch (err) {
     console.error("Create contract error:", err)
-    alert("Erreur lors de la création du contrat.")
+    alert(err.message || "Erreur création contrat.")
   } finally {
     loading.value = false
   }
@@ -251,6 +256,9 @@ function close() {
   emit("close")
 }
 
+// --------------------------------------------------
+// INIT UI
+// --------------------------------------------------
 onMounted(() => {
   startPicker = flatpickr(startInput.value, {
     dateFormat: "M d, Y",
@@ -296,57 +304,28 @@ onBeforeUnmount(() => {
         <input v-model="form.title" placeholder="e.g., L2 Audit November" />
       </label>
 
-      <label class="field">
+      <label class="field ">
         <span>Assign to</span>
-        <div class="select-shell">
-          <select v-model="form.employer">
-            <option value="" disabled>Select a client</option>
-            <option
-              v-for="client in employers"
-              :key="client.uuid"
-              :value="client"
-            >
-              {{ client.label }}
-            </option>
-          </select>
-        </div>
+      <div class="select-shell">
+  <select v-model="form.employer">
+    <option disabled value="">Select a client</option>
+    <option
+      v-for="client in employers"
+      :key="client.uuid"
+      :value="client"
+    >
+      {{ client.label }}
+    </option>
+  </select>
+</div>
+
       </label>
 
-      <label class="field">
-        <span>Total budget (USDC)</span>
-
-        <div class="funds-shell">
-          <div class="funds-header">
-            <p class="funds-label">USDC balance</p>
-            <p class="funds-balance">{{ usdcBalance.toFixed(2) }} USDC</p>
-          </div>
-          <p v-if="usdcMintMissing" class="warning">Mint USDC manquant.</p>
-          <p v-if="txStatus && txStatus.includes('réseau')" class="warning">
-            {{ txStatus }}
-          </p>
-
-          <input
-            type="range"
-            min="0"
-            :max="usdcBalance || 0"
-            step="0.01"
-            v-model.number="form.price"
-          />
-
-          <div class="funds-value">
-            <input
-              type="number"
-              min="0"
-              :max="usdcBalance || 0"
-              step="0.01"
-              v-model.number="form.price"
-            />
-            <span>USDC</span>
-            <button class="refresh" type="button" @click="loadUsdcBalance">
-              ↺
-            </button>
-          </div>
-        </div>
+      <!-- 🔥 REMPLACEMENT : montant choisi dans Phantom -->
+      <label class="field full">
+        <span>Amount (USDC)</span>
+        <p class="muted">The amount will be entered directly inside Phantom during transaction.</p>
+        <p class="muted">USDC Balance: {{ usdcBalance.toFixed(2) }} USDC</p>
       </label>
 
       <div class="field date-grid">
@@ -355,17 +334,16 @@ onBeforeUnmount(() => {
           <input
             ref="startInput"
             type="text"
-            class="date-input"
             placeholder="Select a date"
             readonly
           />
         </label>
+
         <label>
           <span>End date</span>
           <input
             ref="endInput"
             type="text"
-            class="date-input"
             placeholder="Select a date"
             readonly
           />
@@ -392,9 +370,7 @@ onBeforeUnmount(() => {
     </div>
 
     <footer class="actions">
-      <div class="status" v-if="txStatus">
-        {{ txStatus }}
-      </div>
+      <div class="status" v-if="txStatus">{{ txStatus }}</div>
       <button class="ghost" type="button" @click="close">Cancel</button>
       <button
         class="primary"
@@ -408,7 +384,66 @@ onBeforeUnmount(() => {
   </div>
 </template>
 
+
 <style scoped>
+  /* ================================================
+   🔥 FIX SELECT CUSTOM (ne change rien d’autre)
+   ================================================ */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background: transparent !important;
+  background-image: none !important;
+}
+
+.select-shell {
+  position: relative;
+  width: 100%;
+}
+
+.select-shell::after {
+  content: "↓";
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  color: #d9c5ff;
+  font-size: 15px;
+  opacity: 0.85;
+}
+
+.select-shell select {
+  width: 100%;
+  display: block;
+  border-radius: 12px;
+  border: 1px solid rgba(120, 90, 255, 0.28);
+  background: rgba(255, 255, 255, 0.04);
+  padding: 10px 14px;
+  padding-right: 34px;
+  color: #eae7ff;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.select-shell select:focus {
+  outline: none;
+  border-color: rgba(120, 90, 255, 0.55);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.select-shell select option {
+  background: #0a0f24;
+  color: #eae7ff;
+}
+
+
+
+/* ================================================
+   🟣 TON STYLE ORIGINAL COMPLET (RESTAURÉ)
+   ================================================ */
+
 .modal {
   width: min(640px, 100%);
   background: radial-gradient(circle at 20% 20%, rgba(120, 90, 255, 0.15), transparent 45%), rgba(6, 10, 24, 0.95);
@@ -485,7 +520,6 @@ h3 {
 
 .field input,
 .field textarea,
-.select-shell select,
 .date-input {
   border-radius: 12px;
   border: 1px solid rgba(120, 90, 255, 0.28);
@@ -493,20 +527,6 @@ h3 {
   padding: 10px 12px;
   color: #eae7ff;
   font-size: 14px;
-}
-
-.select-shell {
-  position: relative;
-}
-
-.select-shell::after {
-  content: "↓";
-  position: absolute;
-  right: 14px;
-  top: 50%;
-  transform: translateY(-50%);
-  pointer-events: none;
-  color: #d9c5ff;
 }
 
 textarea {
@@ -548,66 +568,10 @@ textarea {
   cursor: not-allowed;
 }
 
-.funds-shell {
-  border-radius: 14px;
-  padding: 10px 12px;
-  background: radial-gradient(circle at 10% 0%, rgba(120, 90, 255, 0.15), transparent 55%),
-    rgba(6, 10, 24, 0.7);
-  border: 1px solid rgba(120, 90, 255, 0.3);
-  display: grid;
-  gap: 6px;
-}
-
-.funds-header {
-  display: flex;
-  justify-content: space-between;
-  font-size: 12px;
-}
-
-.funds-label {
-  color: #9fb0d2;
-}
-
-.funds-balance {
-  color: #e2ecff;
-}
-
-.funds-shell input[type="range"] {
-  width: 100%;
-}
-
-.funds-value {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.funds-value input {
-  flex: 1;
-}
-
-.funds-value span {
-  font-size: 12px;
-  color: #cfd8ff;
-}
-
-.refresh {
-  border: 1px solid rgba(120, 90, 255, 0.4);
-  background: rgba(255, 255, 255, 0.05);
-  color: #dfe7ff;
-  border-radius: 8px;
-  padding: 6px 8px;
-  cursor: pointer;
-}
-
 .status {
   margin-right: auto;
   font-size: 12px;
   color: #9fb0d2;
 }
 
-.warning {
-  color: #f4c2c2;
-  font-size: 12px;
-}
 </style>
