@@ -1,5 +1,11 @@
+// src/services/solana.js
 import { AnchorProvider, BN, Program } from "@coral-xyz/anchor"
-import { Connection, PublicKey, SystemProgram, clusterApiUrl } from "@solana/web3.js"
+import {
+  Connection,
+  PublicKey,
+  SystemProgram,
+  clusterApiUrl,
+} from "@solana/web3.js"
 import {
   TOKEN_PROGRAM_ID,
   getAccount,
@@ -14,6 +20,9 @@ const DEFAULT_RPC =
 export const DEFAULT_CHAIN =
   import.meta.env.VITE_SOLANA_CHAIN || "solana-devnet"
 
+/**
+ * Récupère le provider Phantom dans la fenêtre
+ */
 export const getPhantomProvider = () => {
   if (typeof window === "undefined") return null
   const sol = window.solana
@@ -24,6 +33,9 @@ export const getPhantomProvider = () => {
   return null
 }
 
+/**
+ * Connecte Phantom (demande au wallet)
+ */
 export const connectPhantom = async () => {
   const provider = getPhantomProvider()
   if (!provider) throw new Error("Phantom non détecté.")
@@ -31,9 +43,15 @@ export const connectPhantom = async () => {
   return { provider, publicKey: res.publicKey }
 }
 
+/**
+ * Connexion RPC Solana
+ */
 export const getConnection = (rpcUrl = DEFAULT_RPC) =>
   new Connection(rpcUrl, "confirmed")
 
+/**
+ * Provider Anchor à partir d'une connexion + wallet Phantom
+ */
 export const getAnchorProvider = (connection, wallet) => {
   if (!wallet) throw new Error("Wallet Phantom requis pour Anchor.")
   return new AnchorProvider(connection, wallet, {
@@ -41,12 +59,18 @@ export const getAnchorProvider = (connection, wallet) => {
   })
 }
 
+/**
+ * Charge le programme Anchor
+ */
 export const loadProgram = (idl, programId, provider) => {
   if (!idl) throw new Error("IDL Anchor manquante.")
   if (!programId) throw new Error("ProgramId Solana requis.")
   return new Program(idl, new PublicKey(programId), provider)
 }
 
+/**
+ * PDA de l'escrow + vault dérivés par le programme
+ */
 export const findEscrowPdas = async (programId, initializer, worker) => {
   const programPk = new PublicKey(programId)
   const [escrowStatePda] = PublicKey.findProgramAddressSync(
@@ -60,6 +84,9 @@ export const findEscrowPdas = async (programId, initializer, worker) => {
   return { escrowStatePda, vaultPda }
 }
 
+/**
+ * Lit le solde USDC (ou autre SPL) pour un wallet
+ */
 export const getUsdcBalance = async ({
   wallet,
   mintAddress,
@@ -84,6 +111,10 @@ const requireMethod = (program, name) => {
   }
 }
 
+/**
+ * Appel Anchor: initializeEscrow
+ * (c'est TON programme qui gère la création du vault + transfert USDC via CPI)
+ */
 export const initializeEscrow = async ({
   program,
   amountUsdc,

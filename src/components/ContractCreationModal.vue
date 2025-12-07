@@ -5,6 +5,7 @@ import "flatpickr/dist/themes/dark.css"
 import { PublicKey } from "@solana/web3.js"
 import api from "../services/api"
 import idl from "../idl/escrow_program.json"
+
 import {
   connectPhantom,
   findEscrowPdas,
@@ -21,7 +22,7 @@ const props = defineProps({
   freelancerWallet: String,
   programId: String,
   usdcMint: String,
-  network: String,
+  network: String, // ex: "solana-devnet"
   rpcUrl: String,
   admin1: String,
   admin2: String,
@@ -98,6 +99,9 @@ async function ensurePhantom() {
   return { phantom, publicKey }
 }
 
+/**
+ * Charge le solde USDC de l'employeur connecté
+ */
 async function loadUsdcBalance() {
   try {
     if (usdcMintMissing.value) {
@@ -132,7 +136,8 @@ async function loadUsdcBalance() {
 
 async function submitForm() {
   if (!canSubmit.value) return
-  if (form.timeline.start < todayIso.value) return alert("Start date invalid.")
+  if (form.timeline.start < todayIso.value)
+    return alert("Start date invalid.")
   if (form.timeline.end && form.timeline.end < form.timeline.start) {
     return alert("End date must be after start date.")
   }
@@ -163,9 +168,12 @@ async function submitForm() {
     const connection = getConnection(props.rpcUrl)
     const provider = getAnchorProvider(connection, phantom)
     const program = loadProgram(idl, props.programId, provider)
+
     const workerPk = new PublicKey(props.freelancerWallet)
     const admin1Pk = props.admin1 ? new PublicKey(props.admin1) : publicKey
     const admin2Pk = props.admin2 ? new PublicKey(props.admin2) : publicKey
+
+    // PDA escrow + vault
     const { escrowStatePda, vaultPda } = await findEscrowPdas(
       program.programId,
       publicKey,
@@ -178,6 +186,7 @@ async function submitForm() {
       return
     }
 
+    // 1️⃣ Appel on-chain : initializeEscrow (ton programme gère le transfert USDC)
     txStatus.value = "On-chain: initialize_escrow..."
     const signature = await initializeEscrow({
       program,
@@ -193,32 +202,45 @@ async function submitForm() {
       feeBps: 500,
     })
 
+    console.log("InitializeEscrow tx:", signature)
+
+    // 2️⃣ Enregistrement backend
     txStatus.value = "Enregistrement backend..."
 
-    const res = await api.post("/escrows/create", {
+    const checkpointsArray = form.checkpoints
+      ? form.checkpoints
+          .split("\n")
+          .map((c) => c.trim())
+          .filter(Boolean)
+      : []
+
+    const res = await api.post("/api/contracts", {
       title: form.title,
       description: form.description,
-      checkpoints: form.checkpoints
-        ? form.checkpoints.split("\n").map((c) => c.trim()).filter(Boolean)
-        : [],
-      timeline: form.timeline,
+      checkpoints: checkpointsArray,
+      timeline: {
+        start: form.timeline.start,
+        end: form.timeline.end,
+      },
       amountUsdc: form.price,
       employerUuid: form.employer.uuid,
       employerWallet: publicKey.toBase58(),
       freelancerWallet: props.freelancerWallet,
-      programId: props.programId,
-      usdcMint: props.usdcMint,
-      network: props.network,
+      // pour compat backend actuel
+      txHash: signature, // le contrôleur attend txHash
+      escrowIdOnChain: null,
+      chain: props.network || "solana-devnet",
+      // bonus: infos supplémentaires si tu les ajoutes dans l'Entity plus tard
       escrowStatePda: escrowStatePda.toBase58(),
       vaultPda: vaultPda.toBase58(),
-      txSignature: signature,
+      programId: props.programId,
+      usdcMint: props.usdcMint,
     })
 
     txStatus.value = "Contrat créé."
-
     emit("created", res.data)
   } catch (err) {
-    console.error(err)
+    console.error("Create contract error:", err)
     alert("Erreur lors de la création du contrat.")
   } finally {
     loading.value = false
@@ -261,7 +283,9 @@ onBeforeUnmount(() => {
       <div>
         <p class="eyebrow">New contract</p>
         <h3>Generate a smart contract</h3>
-        <p class="muted">Set financial details and validation checkpoints to launch escrow.</p>
+        <p class="muted">
+          Set financial details and validation checkpoints to launch escrow.
+        </p>
       </div>
       <button class="close" type="button" @click="close">x</button>
     </header>
@@ -297,7 +321,9 @@ onBeforeUnmount(() => {
             <p class="funds-balance">{{ usdcBalance.toFixed(2) }} USDC</p>
           </div>
           <p v-if="usdcMintMissing" class="warning">Mint USDC manquant.</p>
-          <p v-if="txStatus && txStatus.includes('réseau')" class="warning">{{ txStatus }}</p>
+          <p v-if="txStatus && txStatus.includes('réseau')" class="warning">
+            {{ txStatus }}
+          </p>
 
           <input
             type="range"
@@ -316,7 +342,9 @@ onBeforeUnmount(() => {
               v-model.number="form.price"
             />
             <span>USDC</span>
-            <button class="refresh" type="button" @click="loadUsdcBalance">↺</button>
+            <button class="refresh" type="button" @click="loadUsdcBalance">
+              ↺
+            </button>
           </div>
         </div>
       </label>
@@ -324,11 +352,23 @@ onBeforeUnmount(() => {
       <div class="field date-grid">
         <label>
           <span>Start date</span>
-          <input ref="startInput" type="text" class="date-input" placeholder="Select a date" readonly />
+          <input
+            ref="startInput"
+            type="text"
+            class="date-input"
+            placeholder="Select a date"
+            readonly
+          />
         </label>
         <label>
           <span>End date</span>
-          <input ref="endInput" type="text" class="date-input" placeholder="Select a date" readonly />
+          <input
+            ref="endInput"
+            type="text"
+            class="date-input"
+            placeholder="Select a date"
+            readonly
+          />
         </label>
       </div>
 
@@ -356,7 +396,12 @@ onBeforeUnmount(() => {
         {{ txStatus }}
       </div>
       <button class="ghost" type="button" @click="close">Cancel</button>
-      <button class="primary" type="button" :disabled="!canSubmit" @click="submitForm">
+      <button
+        class="primary"
+        type="button"
+        :disabled="!canSubmit"
+        @click="submitForm"
+      >
         {{ loading ? "Creating..." : "Create contract" }}
       </button>
     </footer>

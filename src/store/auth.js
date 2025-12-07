@@ -14,45 +14,35 @@ export const useAuthStore = defineStore("auth", {
   },
 
   actions: {
-    async loginWithWallet({ username, mode = "login" }) {
-      // mode = "login" ou "signup"
+    async loginWithWallet({ username = null, mode = "login" }) {
       const phantom = getPhantomProvider()
       if (!phantom) throw new Error("Phantom non détecté.")
 
+      // 1) Connexion Phantom → récupération de l'adresse
       const { publicKey } = await connectPhantom()
       const walletAddress = publicKey?.toBase58()
       if (!walletAddress) throw new Error("Wallet Phantom introuvable.")
 
-      // ----- 1) Demande du nonce -----
-     const { data: nonceData } = await api.post("/auth/nonce", {
-  walletAddress,
-  chain: DEFAULT_CHAIN,
-  username,
-})
+      // 2) Demande du nonce
+      const { data: nonceData } = await api.post("/auth/nonce", {
+        walletAddress,
+        chain: DEFAULT_CHAIN,
+        username, // utilisé SEULEMENT si creation
+      })
 
-// message affiché selon si l'utilisateur existe déjà
-if (!nonceData.isNew) {
-  console.log("Vous avez déjà un compte, connexion…")
-  alert("Vous avez déjà un compte. Connexion…")
-} else {
-  console.log("Création d’un nouveau compte…")
-  alert("Création d’un nouveau compte…")
-}
+      const exists = nonceData.accountExists === true
 
-      // ----- 2) Gestion login/signup -----
-      // Si un compte existe mais on clique "Créer un compte"
-      if (!nonceData.isNewUser && mode === "signup") {
+      // 3) Mode login/register → validation logique
+      if (mode === "register" && exists) {
         throw new Error("Un compte existe déjà avec ce wallet.")
       }
 
-      // Si aucun compte n'existe mais on clique "Connexion"
-      if (nonceData.isNewUser && mode === "login") {
+      if (mode === "login" && !exists) {
         throw new Error("Aucun compte associé à ce wallet.")
       }
 
-      // ----- 3) Signature du message -----
-      const messageToSign =
-        nonceData.message || `Login nonce: ${nonceData.nonce || ""}`
+      // 4) Signature du nonce
+      const messageToSign = nonceData.message
 
       if (!phantom.signMessage) {
         throw new Error("Phantom ne supporte pas signMessage.")
@@ -64,22 +54,14 @@ if (!nonceData.isNew) {
       const sigBytes = signed.signature || signed
       const signatureBase58 = bs58.encode(sigBytes)
 
-      // ----- 4) Vérification avec backend -----
-      const { data: verifyData } = await api
-        .post("/auth/verify", {
-          walletAddress,
-          signature: signatureBase58,
-          chain: DEFAULT_CHAIN,
-        })
-        .catch((err) => {
-          console.error(
-            "VERIFY ERROR RESPONSE =",
-            err.response?.data || err.message,
-          )
-          throw err
-        })
+      // 5) Vérification backend
+      const { data: verifyData } = await api.post("/auth/verify", {
+        walletAddress,
+        signature: signatureBase58,
+        chain: DEFAULT_CHAIN,
+      })
 
-      // ----- 5) Stockage session -----
+      // 6) Session
       this.token = verifyData.token
       this.user = {
         ...(verifyData.user || {}),

@@ -5,13 +5,15 @@ import { connectPhantom, getPhantomProvider } from "../services/solana"
 
 const auth = useAuthStore()
 const emit = defineEmits(["connected"])
-const mode = ref("login")
+
+const mode = ref("login")  // "login" ou "register"
 const username = ref("")
 const status = ref("")
 
 async function handleProceed() {
   try {
     status.value = "Connexion à Phantom..."
+
     const phantom = getPhantomProvider()
     if (!phantom) {
       alert("Installe ou active Phantom.")
@@ -20,9 +22,12 @@ async function handleProceed() {
     }
 
     await connectPhantom()
+
     status.value = "Signature du message..."
+
     const res = await auth.loginWithWallet({
       username: mode.value === "register" ? username.value : null,
+      mode: mode.value,
     })
 
     emit("connected", {
@@ -31,7 +36,7 @@ async function handleProceed() {
     })
   } catch (e) {
     console.error(e)
-    alert("Connexion Phantom échouée. Voir console.")
+    alert(e.message || "Erreur lors de la connexion.")
   } finally {
     status.value = ""
   }
@@ -67,6 +72,7 @@ async function handleProceed() {
     </div>
   </section>
 </template>
+
 
 <style scoped>
 .auth {
