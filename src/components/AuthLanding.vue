@@ -6,7 +6,7 @@ import { connectPhantom, getPhantomProvider } from "../services/solana"
 const auth = useAuthStore()
 const emit = defineEmits(["connected"])
 
-const mode = ref("login")  // "login" ou "register"
+const mode = ref("login") // login | register
 const username = ref("")
 const status = ref("")
 
@@ -34,6 +34,7 @@ async function handleProceed() {
       token: res.token,
       user: res.user,
     })
+
   } catch (e) {
     console.error(e)
     alert(e.message || "Erreur lors de la connexion.")
@@ -46,6 +47,7 @@ async function handleProceed() {
 <template>
   <section class="auth">
     <div class="card">
+
       <div class="icon"><span>WORK</span></div>
 
       <h1>Connexion Solana</h1>
@@ -72,7 +74,6 @@ async function handleProceed() {
     </div>
   </section>
 </template>
-
 
 <style scoped>
 .auth {

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from "vue"
+import { ref, computed, onMounted, watch } from "vue"
 import { useAuthStore } from "../store/auth"
 import api from "../services/api"
 import { DEFAULT_CHAIN } from "../services/solana"
@@ -13,13 +13,19 @@ import MessagesSection from "./MessagesSection.vue"
 import ProfileSection from "./ProfileSection.vue"
 import DaoDisputesSection from "./DaoDisputesSection.vue"
 import AdminSection from "./AdminSection.vue"
+
+// MODALS
 import ContractCreationModal from "./ContractCreationModal.vue"
 import ContractPreviewModal from "./ContractPreviewModal.vue"
 
+// AUTH SCREEN
+import AuthLanding from "./AuthLanding.vue"
+
 // ==========================
-// STORE AUTH
+// AUTH
 // ==========================
 const auth = useAuthStore()
+const showAuth = ref(!auth.isLogged)
 
 // ==========================
 // TABS
@@ -38,7 +44,7 @@ const tabs = [
 const activeTab = ref("Overview")
 
 // ==========================
-// PROFIL (vient du wallet)
+// PROFILE
 // ==========================
 const profile = computed(() => ({
   username: auth.user?.username || "User",
@@ -47,33 +53,13 @@ const profile = computed(() => ({
 }))
 
 // ==========================
-// CONTRATS (EMPTY - backend va remplir)
+// CONTRACTS
 // ==========================
 const activeContracts = ref([])
 
 // ==========================
-// JOBS (EMPTY - backend)
+// WALLETS FOR CONTRACT MODAL
 // ==========================
-const jobs = ref([])
-
-// ==========================
-// MESSAGES (EMPTY - backend)
-// ==========================
-const conversations = ref([])
-const threads = ref({})
-const activeConversation = ref(null)
-
-// ==========================
-// DAO DISPUTES (EMPTY - backend)
-// ==========================
-const daoDisputes = ref([])
-
-// ==========================
-// ADMIN PANELS
-// ==========================
-const adminStats = ref([])
-const adminTransactions = ref([])
-
 const employers = ref([])
 const freelancerWallet = computed(() => auth.user?.walletAddress || "")
 
@@ -86,177 +72,120 @@ const walletConfig = ref({
   admin2: "",
 })
 
-const programId = computed(() => walletConfig.value.programId || "")
-const usdcMint = computed(() => walletConfig.value.usdcMint || "")
+const programId = computed(() => walletConfig.value.programId)
+const usdcMint = computed(() => walletConfig.value.usdcMint)
 
 // ==========================
-// ACTIONS
+// MODALS STATE
 // ==========================
-const setTab = (tab) => {
-  activeTab.value = tab
-}
-
-// SAVE PROFILE
-const handleProfileSave = (updated) => {
-  // update backend
-  console.log("Profile save:", updated)
-}
-
-// ==========================
-// MESSAGES
-// ==========================
-const selectConversation = (c) => {
-  activeConversation.value = c
-  if (!threads.value[c.name]) {
-    threads.value[c.name] = []
-  }
-}
-
-const handleSendMessage = (text) => {
-  if (!activeConversation.value || !text.trim()) return
-
-  const convo = activeConversation.value.name
-  const msg = {
-    id: Date.now(),
-    from: "me",
-    author: auth.user.username,
-    text,
-    time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-  }
-
-  threads.value[convo].push(msg)
-}
-
-// ==========================
-// JOBS (APPLY)
-// ==========================
-const showApplyModal = ref(false)
-const selectedJob = ref(null)
-const applyMessage = ref("")
-
-const startApply = (job) => {
-  selectedJob.value = job
-  applyMessage.value = ""
-  showApplyModal.value = true
-}
-
-const closeApplyModal = () => {
-  showApplyModal.value = false
-  selectedJob.value = null
-  applyMessage.value = ""
-}
-
-const handleJobApplication = () => {
-  console.log("Job application:", {
-    job: selectedJob.value,
-    message: applyMessage.value,
-    wallet: auth.user.walletAddress,
-  })
-  closeApplyModal()
-}
-
-// ==========================
-// CONTRACTS MODALS
-// ==========================
-const showContractModal = ref(false)
+const showCreateContract = ref(false)
 const showContractViewer = ref(false)
-const activeContractPreview = ref(null)
+const previewContract = ref(null)
 
-const openContractModal = () => {
-  if (!walletConfig.value.usdcMint || !walletConfig.value.programId) {
-    alert("Config Solana manquante (usdcMint/programId via /api/wallet/config).")
-    return
-  }
-  showContractModal.value = true
-}
-
-const closeContractModal = () => {
-  showContractModal.value = false
-}
-
-const openContractViewer = (contract) => {
-  activeContractPreview.value = contract
-  showContractViewer.value = true
-}
-
-const closeContractViewer = () => {
-  showContractViewer.value = false
-  activeContractPreview.value = null
-}
-
-// SUBMIT NEW CONTRACT
-const handleContractSubmit = (payload) => {
-  console.log("Create contract:", payload)
-  activeContracts.value.push(payload)
-  closeContractModal()
-}
-
+// ==========================
+// LOADERS
+// ==========================
 async function loadMyContracts() {
+  if (!auth.isLogged) return
   try {
-    let data = null
-    if (auth.user?.walletAddress) {
-      const res = await api.get(`/escrows/user/${auth.user.walletAddress}`).catch(() => null)
-      data = res?.data
-    }
-    if (!data) {
-      const fallback = await api.get("/api/contracts/me").catch(() => null)
-      data = fallback?.data
-    }
-    activeContracts.value = data || []
+    const res = await api.get("/api/contracts/me")
+    activeContracts.value = res.data || []
   } catch (e) {
     console.error("Load contracts failed", e)
   }
 }
 
 async function loadEmployers() {
+  if (!auth.isLogged) return
   try {
     const { data } = await api.get("/users")
-    const mapped = (data || []).map((u) => ({
+    employers.value = (data || []).map((u) => ({
       uuid: u.uuid,
       label: u.username || u.walletAddress,
       walletAddress: u.walletAddress,
     }))
-    if (auth.user && !mapped.some((u) => u.uuid === auth.user.uuid)) {
-      mapped.unshift({
-        uuid: auth.user.uuid,
-        label: auth.user.username || "Client",
-        walletAddress: auth.user.walletAddress,
-      })
-    }
-    employers.value = mapped
   } catch (e) {
-    console.error("Load employers failed", e)
-    if (auth.user) {
-      employers.value = [{
-        uuid: auth.user.uuid,
-        label: auth.user.username || "Client",
-        walletAddress: auth.user.walletAddress,
-      }]
-    }
+    console.error(e)
   }
 }
 
 async function loadWalletConfig() {
   try {
     const { data } = await api.get("/api/wallet/config")
-    const cfg = data || {}
     walletConfig.value = {
-      usdcMint: cfg.usdcMint || cfg.usdc_address || cfg.usdcAddress || "",
-      programId: cfg.programId || cfg.escrow_program_id || cfg.escrowAddress || "",
-      rpcUrl: cfg.rpcUrl || cfg.rpc || walletConfig.value.rpcUrl,
-      network: cfg.network || cfg.chain || cfg.chain_slug || DEFAULT_CHAIN,
-      admin1: cfg.admin1 || cfg.admin_one || "",
-      admin2: cfg.admin2 || cfg.admin_two || "",
+      usdcMint: data.usdcMint || "",
+      programId: data.programId || "",
+      rpcUrl: data.rpcUrl || walletConfig.value.rpcUrl,
+      network: data.network || DEFAULT_CHAIN,
+      admin1: data.admin1 || "",
+      admin2: data.admin2 || "",
     }
-    console.log("Wallet config loaded:", walletConfig.value)
   } catch (e) {
     console.error("Load wallet config failed", e)
   }
 }
 
-onMounted(() => {
+// ==========================
+// MODAL ACTIONS
+// ==========================
+function openCreateContract() {
+  if (!walletConfig.value.programId || !walletConfig.value.usdcMint) {
+    alert("Configuration Solana manquante. Contacte un admin.")
+    return
+  }
+  showCreateContract.value = true
+}
+
+function closeCreateContract() {
+  showCreateContract.value = false
+}
+
+function createContractSuccess(contract) {
+  activeContracts.value.push(contract)
+  showCreateContract.value = false
+}
+
+function openContractPreview(contract) {
+  previewContract.value = contract
+  showContractViewer.value = true
+}
+
+function closeContractPreview() {
+  previewContract.value = null
+  showContractViewer.value = false
+}
+
+// ==========================
+// LOGIN SUCCESS
+// ==========================
+function handleConnected({ user, token }) {
+  showAuth.value = false
   loadWalletConfig()
+  loadMyContracts()
+  loadEmployers()
+}
+
+// ==========================
+// WATCH LOGIN
+// ==========================
+watch(
+  () => auth.isLogged,
+  (logged) => {
+    showAuth.value = !logged
+    if (logged) {
+      loadWalletConfig()
+      loadMyContracts()
+      loadEmployers()
+    }
+  },
+)
+
+// ==========================
+// MOUNT
+// ==========================
+onMounted(() => {
   if (auth.isLogged) {
+    loadWalletConfig()
     loadMyContracts()
     loadEmployers()
   }
@@ -264,125 +193,94 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="page">
+  <!-- AUTH REQUIRED -->
+  <AuthLanding
+    v-if="showAuth"
+    @connected="handleConnected"
+  />
 
-    <!-- =======================
-         HEADER
-    ======================== -->
+  <div v-else class="page">
+
+    <!-- HEADER -->
     <header class="top-bar">
       <div class="work-pill">WORK</div>
 
       <div class="profile">
-        {{ profile.username }}
+        {{ profile.username?.substring(0, 2).toUpperCase() }}
       </div>
     </header>
 
-    <!-- =======================
-         NAVIGATION
-    ======================== -->
+    <!-- NAVIGATION -->
     <nav class="tabs">
       <button
         v-for="tab in tabs"
         :key="tab"
         :class="['tab', { active: activeTab === tab }]"
-        @click="setTab(tab)"
+        @click="activeTab = tab"
       >
         {{ tab }}
       </button>
     </nav>
 
-    <!-- =======================
+    <!-- ======================
          SECTIONS
-    ======================== -->
-
-    <OverviewSection
-      v-if="activeTab === 'Overview'"
-    />
+    ======================= -->
+    <OverviewSection v-if="activeTab === 'Overview'" />
 
     <ContractsSection
       v-else-if="activeTab === 'Contracts'"
       :contracts="activeContracts"
-      @create-contract="openContractModal"
-      @view-contract="openContractViewer"
+      @create-contract="openCreateContract"
+      @view-contract="openContractPreview"
     />
 
-    <JobsSection
-      v-else-if="activeTab === 'My Jobs'"
-      :jobs="jobs"
-      @apply-job="startApply"
-    />
+    <JobsSection v-else-if="activeTab === 'My Jobs'" />
 
-    <RechargerJobsSection
-      v-else-if="activeTab === 'Find a job'"
-      :jobs="jobs"
-      @apply-job="startApply"
-    />
+    <RechargerJobsSection v-else-if="activeTab === 'Find a job'" />
 
-    <MessagesSection
-      v-else-if="activeTab === 'Messages'"
-      :conversations="conversations"
-      :active-conversation="activeConversation"
-      :thread="threads[activeConversation?.name] || []"
-      @select-conversation="selectConversation"
-      @send-message="handleSendMessage"
-    />
+    <MessagesSection v-else-if="activeTab === 'Messages'" />
 
-    <ProfileSection
-      v-else-if="activeTab === 'Profile'"
-      :profile="profile"
-      @save-profile="handleProfileSave"
-    />
+    <ProfileSection v-else-if="activeTab === 'Profile'" :profile="profile" />
 
-    <DaoDisputesSection
-      v-else-if="activeTab === 'DAO'"
-      :disputes="daoDisputes"
-    />
+    <DaoDisputesSection v-else-if="activeTab === 'DAO'" />
 
-    <AdminSection
-      v-else
-      :cards="adminStats"
-      :disputes="daoDisputes"
-      :transactions="adminTransactions"
-    />
+    <AdminSection v-else :cards="[]" :disputes="[]" :transactions="[]" />
 
-    <!-- APPLY MODAL -->
-    <div v-if="showApplyModal" class="apply-overlay" @click.self="closeApplyModal">
-      <div class="apply-card">
-        <header class="apply-head">
-          <h3>{{ selectedJob?.title }}</h3>
-          <button @click="closeApplyModal">x</button>
-        </header>
-        <textarea v-model="applyMessage" rows="4"></textarea>
-        <button class="primary-btn" @click="handleJobApplication">
-          Envoyer
-        </button>
-      </div>
-    </div>
-
-    <!-- CONTRACT CREATION -->
-    <div v-if="showContractModal" class="overlay" @click.self="closeContractModal">
+    <!-- ==========================
+         MODAL : CREATE CONTRACT
+    ========================== -->
+    <div
+      v-if="showCreateContract"
+      class="overlay"
+      @click.self="closeCreateContract"
+    >
       <ContractCreationModal
         :employers="employers"
         :freelancer-wallet="freelancerWallet"
         :program-id="programId"
         :usdc-mint="usdcMint"
-        :network="walletConfig.network"
         :rpc-url="walletConfig.rpcUrl"
+        :network="walletConfig.network"
         :admin1="walletConfig.admin1"
         :admin2="walletConfig.admin2"
-        @created="handleContractSubmit"
-        @close="closeContractModal"
+        @created="createContractSuccess"
+        @close="closeCreateContract"
       />
     </div>
 
-    <!-- CONTRACT VIEWER -->
-    <div v-if="showContractViewer" class="overlay" @click.self="closeContractViewer">
+    <!-- ==========================
+         MODAL : PREVIEW CONTRACT
+    ========================== -->
+    <div
+      v-if="showContractViewer"
+      class="overlay"
+      @click.self="closeContractPreview"
+    >
       <ContractPreviewModal
-        :contract="activeContractPreview"
-        @close="closeContractViewer"
+        :contract="previewContract"
+        @close="closeContractPreview"
       />
     </div>
-
   </div>
 </template>
 

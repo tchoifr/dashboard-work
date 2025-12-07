@@ -14,35 +14,36 @@ export const useAuthStore = defineStore("auth", {
   },
 
   actions: {
-    async loginWithWallet({ username = null, mode = "login" }) {
+    async loginWithWallet({ username, mode = "login" }) {
+
+      // 1) Vérifier Phantom
       const phantom = getPhantomProvider()
       if (!phantom) throw new Error("Phantom non détecté.")
 
-      // 1) Connexion Phantom → récupération de l'adresse
       const { publicKey } = await connectPhantom()
       const walletAddress = publicKey?.toBase58()
       if (!walletAddress) throw new Error("Wallet Phantom introuvable.")
 
-      // 2) Demande du nonce
+      // 2) Demander le nonce
       const { data: nonceData } = await api.post("/auth/nonce", {
         walletAddress,
         chain: DEFAULT_CHAIN,
-        username, // utilisé SEULEMENT si creation
+        username,
       })
 
-      const exists = nonceData.accountExists === true
+      const isNew = nonceData.isNewUser === true
 
-      // 3) Mode login/register → validation logique
-      if (mode === "register" && exists) {
+      // --- LOGIQUE LOGIN / SIGNUP ---
+      if (mode === "signup" && !isNew) {
         throw new Error("Un compte existe déjà avec ce wallet.")
       }
 
-      if (mode === "login" && !exists) {
-        throw new Error("Aucun compte associé à ce wallet.")
+      if (mode === "login" && isNew) {
+        throw new Error("Aucun compte trouvé pour ce wallet.")
       }
 
-      // 4) Signature du nonce
-      const messageToSign = nonceData.message
+      // 3) Préparer le message à signer
+      const messageToSign = nonceData.message || `Login nonce: ${nonceData.nonce}`
 
       if (!phantom.signMessage) {
         throw new Error("Phantom ne supporte pas signMessage.")
@@ -54,14 +55,14 @@ export const useAuthStore = defineStore("auth", {
       const sigBytes = signed.signature || signed
       const signatureBase58 = bs58.encode(sigBytes)
 
-      // 5) Vérification backend
+      // 4) Vérification backend
       const { data: verifyData } = await api.post("/auth/verify", {
         walletAddress,
         signature: signatureBase58,
         chain: DEFAULT_CHAIN,
       })
 
-      // 6) Session
+      // 5) Stocker la session
       this.token = verifyData.token
       this.user = {
         ...(verifyData.user || {}),
