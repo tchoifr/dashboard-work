@@ -1,18 +1,7 @@
-import { defineStore } from "pinia";
-import api from "../services/api";
-
-function getMetaMask() {
-  const eth = window.ethereum;
-  if (!eth) return null;
-
-  if (eth.providers?.length) {
-    const mm = eth.providers.find((p) => p.isMetaMask && !p.isCoinbaseWallet);
-    if (mm) return mm;
-  }
-
-  if (eth.isMetaMask && !eth.isCoinbaseWallet) return eth;
-  return null;
-}
+import { defineStore } from "pinia"
+import api from "../services/api"
+import bs58 from "bs58"
+import { DEFAULT_CHAIN, connectPhantom, getPhantomProvider } from "../services/solana"
 
 export const useAuthStore = defineStore("auth", {
   state: () => ({
@@ -25,60 +14,85 @@ export const useAuthStore = defineStore("auth", {
   },
 
   actions: {
-    async loginWithWallet({ walletAddress, chain, username }) {
-      const eth = getMetaMask();
-      if (!eth) throw new Error("Metamask non détecté.");
+    async loginWithWallet({ username, mode = "login" }) {
+      // mode = "login" ou "signup"
+      const phantom = getPhantomProvider()
+      if (!phantom) throw new Error("Phantom non détecté.")
 
-      // 1) On récupère l’adresse réelle
-      const [active] = await eth.request({ method: "eth_requestAccounts" });
-      const address = active || walletAddress;
-      console.log("Wallet utilisé =", address);
+      const { publicKey } = await connectPhantom()
+      const walletAddress = publicKey?.toBase58()
+      if (!walletAddress) throw new Error("Wallet Phantom introuvable.")
 
-      // 2) On demande le nonce au backend
-      const { data: nonceData } = await api.post("/auth/nonce", {
-        walletAddress: address,
-        chain,
-        username,
-      });
+      // ----- 1) Demande du nonce -----
+     const { data: nonceData } = await api.post("/auth/nonce", {
+  walletAddress,
+  chain: DEFAULT_CHAIN,
+  username,
+})
 
-      console.log("MESSAGE DU BACKEND =", nonceData.message);
+// message affiché selon si l'utilisateur existe déjà
+if (!nonceData.isNew) {
+  console.log("Vous avez déjà un compte, connexion…")
+  alert("Vous avez déjà un compte. Connexion…")
+} else {
+  console.log("Création d’un nouveau compte…")
+  alert("Création d’un nouveau compte…")
+}
 
+      // ----- 2) Gestion login/signup -----
+      // Si un compte existe mais on clique "Créer un compte"
+      if (!nonceData.isNewUser && mode === "signup") {
+        throw new Error("Un compte existe déjà avec ce wallet.")
+      }
+
+      // Si aucun compte n'existe mais on clique "Connexion"
+      if (nonceData.isNewUser && mode === "login") {
+        throw new Error("Aucun compte associé à ce wallet.")
+      }
+
+      // ----- 3) Signature du message -----
       const messageToSign =
-        nonceData.message ||
-        `Login nonce: ${nonceData.nonce || ""}`;
+        nonceData.message || `Login nonce: ${nonceData.nonce || ""}`
 
-      // 3) SIGNATURE — en clair, sans hexlify
-      const signature = await eth.request({
-        method: "personal_sign",
-        params: [messageToSign, address],
-      });
+      if (!phantom.signMessage) {
+        throw new Error("Phantom ne supporte pas signMessage.")
+      }
 
-      console.log("SIGNATURE =", signature);
+      const encoded = new TextEncoder().encode(messageToSign)
+      const signed = await phantom.signMessage(encoded, "utf8")
 
-      // 4) Vérif côté backend
+      const sigBytes = signed.signature || signed
+      const signatureBase58 = bs58.encode(sigBytes)
+
+      // ----- 4) Vérification avec backend -----
       const { data: verifyData } = await api
         .post("/auth/verify", {
-          walletAddress: address,
-          signature,
-          chain,
+          walletAddress,
+          signature: signatureBase58,
+          chain: DEFAULT_CHAIN,
         })
         .catch((err) => {
-          console.error("VERIFY ERROR RESPONSE =", err.response?.data || err.message);
-          throw err;
-        });
+          console.error(
+            "VERIFY ERROR RESPONSE =",
+            err.response?.data || err.message,
+          )
+          throw err
+        })
 
-      console.log("VERIFY RESPONSE =", verifyData);
+      // ----- 5) Stockage session -----
+      this.token = verifyData.token
+      this.user = {
+        ...(verifyData.user || {}),
+        walletAddress,
+        chain: DEFAULT_CHAIN,
+      }
 
-      // 5) On stocke
-      this.token = verifyData.token;
-      this.user = verifyData.user;
-
-      return verifyData;
+      return verifyData
     },
 
     logout() {
-      this.token = null;
-      this.user = null;
+      this.token = null
+      this.user = null
     },
   },
-});
+})

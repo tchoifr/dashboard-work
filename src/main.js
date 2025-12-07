@@ -1,3 +1,9 @@
+import { Buffer } from 'buffer'
+window.Buffer = Buffer
+
+window.process = {
+  env: {},
+}
 import './assets/main.css'
 import { createApp } from "vue"
 import { createPinia } from "pinia"

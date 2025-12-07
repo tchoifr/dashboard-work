@@ -1,53 +1,40 @@
 <script setup>
 import { ref } from "vue"
 import { useAuthStore } from "../store/auth"
-
-function getMetaMask() {
-  const eth = window.ethereum
-  if (!eth) return null
-  if (eth.providers?.length) {
-    const mm = eth.providers.find((p) => p.isMetaMask && !p.isCoinbaseWallet)
-    if (mm) return mm
-  }
-  return eth.isMetaMask && !eth.isCoinbaseWallet ? eth : null
-}
+import { connectPhantom, getPhantomProvider } from "../services/solana"
 
 const auth = useAuthStore()
 const emit = defineEmits(["connected"])
 const mode = ref("login")
 const username = ref("")
-
-async function connectMetamask() {
-  const eth = getMetaMask()
-  if (!eth) {
-    alert("Installe Metamask.")
-    return null
-  }
-
-  const accounts = await eth.request({
-    method: "eth_requestAccounts",
-  })
-
-  return accounts[0]
-}
+const status = ref("")
 
 async function handleProceed() {
-  let walletAddress = null
-  const chain = "ethereum-mainnet"
+  try {
+    status.value = "Connexion à Phantom..."
+    const phantom = getPhantomProvider()
+    if (!phantom) {
+      alert("Installe ou active Phantom.")
+      status.value = ""
+      return
+    }
 
-  walletAddress = await connectMetamask()
-  if (!walletAddress) return
+    await connectPhantom()
+    status.value = "Signature du message..."
+    const res = await auth.loginWithWallet({
+      username: mode.value === "register" ? username.value : null,
+    })
 
-  const res = await auth.loginWithWallet({
-    walletAddress,
-    chain,
-    username: mode.value === "register" ? username.value : null,
-  })
-
-  emit("connected", {
-    token: res.token,
-    user: res.user,
-  })
+    emit("connected", {
+      token: res.token,
+      user: res.user,
+    })
+  } catch (e) {
+    console.error(e)
+    alert("Connexion Phantom échouée. Voir console.")
+  } finally {
+    status.value = ""
+  }
 }
 </script>
 
@@ -56,8 +43,8 @@ async function handleProceed() {
     <div class="card">
       <div class="icon"><span>WORK</span></div>
 
-      <h1>Connexion Web3</h1>
-      <p class="lead">Connecte-toi ou crées un compte via ton wallet.</p>
+      <h1>Connexion Solana</h1>
+      <p class="lead">Connecte-toi ou crée un compte via Phantom.</p>
 
       <div v-if="mode === 'register'" class="form-group">
         <label>Nom d'utilisateur</label>
@@ -65,8 +52,10 @@ async function handleProceed() {
       </div>
 
       <button class="btn primary" @click="handleProceed">
-        {{ mode === "login" ? "Connecter mon wallet" : "Créer mon compte" }}
+        {{ mode === "login" ? "Connecter Phantom" : "Créer mon compte" }}
       </button>
+
+      <p v-if="status" class="status">{{ status }}</p>
 
       <button class="link" v-if="mode === 'login'" @click="mode = 'register'">
         Créer un compte
@@ -184,6 +173,12 @@ h1 {
 .btn.primary:hover {
   transform: translateY(-1px);
   box-shadow: 0 20px 40px rgba(0, 102, 255, 0.42);
+}
+
+.status {
+  color: #8ad4ff;
+  font-weight: 700;
+  margin: 6px 0 0;
 }
 
 .link {

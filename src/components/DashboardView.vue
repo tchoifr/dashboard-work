@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from "vue"
 import { useAuthStore } from "../store/auth"
 import api from "../services/api"
+import { DEFAULT_CHAIN } from "../services/solana"
 
 // SECTIONS
 import OverviewSection from "./OverviewSection.vue"
@@ -16,12 +17,12 @@ import ContractCreationModal from "./ContractCreationModal.vue"
 import ContractPreviewModal from "./ContractPreviewModal.vue"
 
 // ==========================
-// 🔥 STORE AUTH
+// STORE AUTH
 // ==========================
 const auth = useAuthStore()
 
 // ==========================
-// ✅ TABS
+// TABS
 // ==========================
 const tabs = [
   "Overview",
@@ -37,38 +38,38 @@ const tabs = [
 const activeTab = ref("Overview")
 
 // ==========================
-// 📌 PROFIL (vient du wallet)
+// PROFIL (vient du wallet)
 // ==========================
 const profile = computed(() => ({
   username: auth.user?.username || "User",
   wallet: auth.user?.walletAddress,
-  chain: auth.user?.chain,
+  chain: auth.user?.chain || DEFAULT_CHAIN,
 }))
 
 // ==========================
-// 📌 CONTRATS (EMPTY → backend va remplir)
+// CONTRATS (EMPTY - backend va remplir)
 // ==========================
 const activeContracts = ref([])
 
 // ==========================
-// 📌 JOBS (EMPTY → backend)
+// JOBS (EMPTY - backend)
 // ==========================
 const jobs = ref([])
 
 // ==========================
-// 📌 MESSAGES (EMPTY → backend)
+// MESSAGES (EMPTY - backend)
 // ==========================
 const conversations = ref([])
 const threads = ref({})
 const activeConversation = ref(null)
 
 // ==========================
-// 📌 DAO DISPUTES (EMPTY → backend)
+// DAO DISPUTES (EMPTY - backend)
 // ==========================
 const daoDisputes = ref([])
 
 // ==========================
-// 📌 ADMIN PANELS
+// ADMIN PANELS
 // ==========================
 const adminStats = ref([])
 const adminTransactions = ref([])
@@ -77,14 +78,16 @@ const employers = ref([])
 const freelancerWallet = computed(() => auth.user?.walletAddress || "")
 
 const walletConfig = ref({
-  usdcAddress: "",
-  escrowAddress: "",
-  chainId: "",
-  chain: "",
+  usdcMint: "",
+  programId: "",
+  rpcUrl: import.meta.env.VITE_SOLANA_RPC || "https://api.devnet.solana.com",
+  network: DEFAULT_CHAIN,
+  admin1: "",
+  admin2: "",
 })
 
-const escrowAddress = computed(() => walletConfig.value.escrowAddress || "")
-const usdcAddress = computed(() => walletConfig.value.usdcAddress || "")
+const programId = computed(() => walletConfig.value.programId || "")
+const usdcMint = computed(() => walletConfig.value.usdcMint || "")
 
 // ==========================
 // ACTIONS
@@ -160,8 +163,8 @@ const showContractViewer = ref(false)
 const activeContractPreview = ref(null)
 
 const openContractModal = () => {
-  if (!walletConfig.value.usdcAddress || !walletConfig.value.escrowAddress) {
-    alert("Config USDC/Escrow manquante ou mal nommée (backend /api/wallet/config).")
+  if (!walletConfig.value.usdcMint || !walletConfig.value.programId) {
+    alert("Config Solana manquante (usdcMint/programId via /api/wallet/config).")
     return
   }
   showContractModal.value = true
@@ -190,7 +193,15 @@ const handleContractSubmit = (payload) => {
 
 async function loadMyContracts() {
   try {
-    const { data } = await api.get("/api/contracts/me")
+    let data = null
+    if (auth.user?.walletAddress) {
+      const res = await api.get(`/escrows/user/${auth.user.walletAddress}`).catch(() => null)
+      data = res?.data
+    }
+    if (!data) {
+      const fallback = await api.get("/api/contracts/me").catch(() => null)
+      data = fallback?.data
+    }
     activeContracts.value = data || []
   } catch (e) {
     console.error("Load contracts failed", e)
@@ -230,10 +241,12 @@ async function loadWalletConfig() {
     const { data } = await api.get("/api/wallet/config")
     const cfg = data || {}
     walletConfig.value = {
-      usdcAddress: cfg.usdcAddress || cfg.usdc_address || "",
-      escrowAddress: cfg.escrowAddress || cfg.escrow_address || "",
-      chainId: cfg.chainId || cfg.chain_id || "",
-      chain: cfg.chain || cfg.chain_slug || "",
+      usdcMint: cfg.usdcMint || cfg.usdc_address || cfg.usdcAddress || "",
+      programId: cfg.programId || cfg.escrow_program_id || cfg.escrowAddress || "",
+      rpcUrl: cfg.rpcUrl || cfg.rpc || walletConfig.value.rpcUrl,
+      network: cfg.network || cfg.chain || cfg.chain_slug || DEFAULT_CHAIN,
+      admin1: cfg.admin1 || cfg.admin_one || "",
+      admin2: cfg.admin2 || cfg.admin_two || "",
     }
     console.log("Wallet config loaded:", walletConfig.value)
   } catch (e) {
@@ -254,7 +267,7 @@ onMounted(() => {
   <div class="page">
 
     <!-- =======================
-         🔥 HEADER
+         HEADER
     ======================== -->
     <header class="top-bar">
       <div class="work-pill">WORK</div>
@@ -265,7 +278,7 @@ onMounted(() => {
     </header>
 
     <!-- =======================
-         🔥 NAVIGATION
+         NAVIGATION
     ======================== -->
     <nav class="tabs">
       <button
@@ -279,7 +292,7 @@ onMounted(() => {
     </nav>
 
     <!-- =======================
-         🔥 SECTIONS
+         SECTIONS
     ======================== -->
 
     <OverviewSection
@@ -347,14 +360,16 @@ onMounted(() => {
     </div>
 
     <!-- CONTRACT CREATION -->
-      <div v-if="showContractModal" class="overlay" @click.self="closeContractModal">
+    <div v-if="showContractModal" class="overlay" @click.self="closeContractModal">
       <ContractCreationModal
         :employers="employers"
         :freelancer-wallet="freelancerWallet"
-        :escrow-address="escrowAddress"
-        :usdc-address="usdcAddress"
-        :chain-id="walletConfig.chainId"
-        :chain="walletConfig.chain"
+        :program-id="programId"
+        :usdc-mint="usdcMint"
+        :network="walletConfig.network"
+        :rpc-url="walletConfig.rpcUrl"
+        :admin1="walletConfig.admin1"
+        :admin2="walletConfig.admin2"
         @created="handleContractSubmit"
         @close="closeContractModal"
       />

@@ -2,38 +2,29 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue"
 import flatpickr from "flatpickr"
 import "flatpickr/dist/themes/dark.css"
-import { ethers } from "ethers"
+import { PublicKey } from "@solana/web3.js"
 import api from "../services/api"
-
-function getMetaMask() {
-  const eth = window.ethereum
-  if (!eth) return null
-  if (eth.providers?.length) {
-    const mm = eth.providers.find((p) => p.isMetaMask && !p.isCoinbaseWallet)
-    if (mm) return mm
-  }
-  return eth.isMetaMask && !eth.isCoinbaseWallet ? eth : null
-}
-
-async function connectEvmWallet() {
-  const eth = getMetaMask()
-  if (!eth) throw new Error("Aucun wallet Metamask détecté.")
-  const accounts = await eth.request({ method: "eth_requestAccounts" })
-  const provider = new ethers.BrowserProvider(eth)
-  return {
-    provider,
-    account: accounts?.[0],
-    signer: await provider.getSigner(),
-  }
-}
+import idl from "../idl/escrow_program.json"
+import {
+  connectPhantom,
+  findEscrowPdas,
+  getAnchorProvider,
+  getConnection,
+  getPhantomProvider,
+  getUsdcBalance,
+  initializeEscrow,
+  loadProgram,
+} from "../services/solana"
 
 const props = defineProps({
   employers: Array, // [{ uuid, label, walletAddress }]
   freelancerWallet: String,
-  escrowAddress: String,
-  usdcAddress: String,
-  chainId: String,
-  chain: String,
+  programId: String,
+  usdcMint: String,
+  network: String,
+  rpcUrl: String,
+  admin1: String,
+  admin2: String,
 })
 
 const emit = defineEmits(["close", "created"])
@@ -55,19 +46,12 @@ let endPicker = null
 const loading = ref(false)
 const txStatus = ref("")
 const usdcBalance = ref(0)
+const initializerAta = ref(null)
+const walletAddress = ref("")
 
-const usdcAddressMissing = computed(() => !props.usdcAddress)
-const escrowAddressMissing = computed(() => !props.escrowAddress)
-
-const ABI_USDC = [
-  "function balanceOf(address) view returns (uint256)",
-  "function approve(address,uint256) returns (bool)",
-]
-
-const ABI_ESCROW = [
-  "event EscrowCreated(uint256 indexed escrowId,address employer,address freelancer,uint256 amount)",
-  "function createEscrow(address freelancer,uint256 amount) external",
-]
+const usdcMintMissing = computed(() => !props.usdcMint)
+const programIdMissing = computed(() => !props.programId)
+const phantomReady = computed(() => !!walletAddress.value)
 
 const todayIso = computed(() => new Date().toISOString().split("T")[0])
 
@@ -81,8 +65,8 @@ const canSubmit = computed(() => {
     form.timeline.start &&
     form.timeline.end &&
     !loading.value &&
-    !usdcAddressMissing.value &&
-    !escrowAddressMissing.value
+    !usdcMintMissing.value &&
+    !programIdMissing.value
   )
 })
 
@@ -103,32 +87,41 @@ function syncEndMinDate() {
   }
 }
 
+async function ensurePhantom() {
+  const phantom = getPhantomProvider()
+  if (!phantom) {
+    txStatus.value = "Installe Phantom."
+    throw new Error("Phantom manquant")
+  }
+  const { publicKey } = await connectPhantom()
+  walletAddress.value = publicKey?.toBase58() || ""
+  return { phantom, publicKey }
+}
+
 async function loadUsdcBalance() {
   try {
-    if (usdcAddressMissing.value) {
-      txStatus.value = "Adresse USDC manquante."
+    if (usdcMintMissing.value) {
+      txStatus.value = "Mint USDC manquant."
       return
     }
 
-    txStatus.value = "Chargement du solde USDC..."
-    const { provider, account } = await connectEvmWallet()
-    if (!account) {
-      txStatus.value = "Connexion wallet requise."
+    txStatus.value = "Connexion Phantom..."
+    const { publicKey } = await ensurePhantom()
+    if (!publicKey) {
+      txStatus.value = "Wallet requis."
       return
     }
 
-    if (props.chainId) {
-      const net = await provider.getNetwork()
-      const currentChainId = net.chainId ? "0x" + net.chainId.toString(16) : ""
-      if (currentChainId && props.chainId.toLowerCase() !== currentChainId.toLowerCase()) {
-        txStatus.value = `Mauvais réseau (${currentChainId}). Sélectionne ${props.chainId}.`
-        return
-      }
-    }
+    const connection = getConnection(props.rpcUrl)
+    txStatus.value = "Lecture du solde USDC..."
+    const balanceInfo = await getUsdcBalance({
+      wallet: publicKey,
+      mintAddress: props.usdcMint,
+      connection,
+    })
 
-    const usdc = new ethers.Contract(props.usdcAddress, ABI_USDC, provider)
-    const bal = await usdc.balanceOf(account)
-    usdcBalance.value = Number(ethers.formatUnits(bal, 6))
+    initializerAta.value = balanceInfo.ata
+    usdcBalance.value = balanceInfo.amount
     txStatus.value = ""
   } catch (e) {
     console.error("Balance Error:", e)
@@ -146,64 +139,63 @@ async function submitForm() {
 
   try {
     loading.value = true
-    txStatus.value = "Connecting wallet..."
+    txStatus.value = "Connexion Phantom..."
 
-    const { provider, signer, account: employerWallet } = await connectEvmWallet()
-
-    if (!employerWallet) {
+    const { phantom, publicKey } = await ensurePhantom()
+    if (!publicKey) {
       alert("Connexion wallet requise.")
       return
     }
 
     if (
-      form.employer.walletAddress.toLowerCase() !==
-      employerWallet.toLowerCase()
+      form.employer.walletAddress &&
+      form.employer.walletAddress !== publicKey.toBase58()
     ) {
       alert("Le wallet connecté ne correspond pas à l'employeur sélectionné.")
       return
     }
 
-    if (props.chainId) {
-      const net = await provider.getNetwork()
-      const currentChainId = net.chainId ? "0x" + net.chainId.toString(16) : ""
-      if (currentChainId && props.chainId.toLowerCase() !== currentChainId.toLowerCase()) {
-        alert("Mauvais réseau sélectionné dans le wallet.")
-        return
-      }
-    }
-
-    if (usdcAddressMissing.value || escrowAddressMissing.value) {
-      alert("Adresse USDC ou Escrow manquante.")
+    if (usdcMintMissing.value || programIdMissing.value) {
+      alert("Mint USDC ou ProgramId manquant.")
       return
     }
 
-    const amount = ethers.parseUnits(form.price.toString(), 6)
+    const connection = getConnection(props.rpcUrl)
+    const provider = getAnchorProvider(connection, phantom)
+    const program = loadProgram(idl, props.programId, provider)
+    const workerPk = new PublicKey(props.freelancerWallet)
+    const admin1Pk = props.admin1 ? new PublicKey(props.admin1) : publicKey
+    const admin2Pk = props.admin2 ? new PublicKey(props.admin2) : publicKey
+    const { escrowStatePda, vaultPda } = await findEscrowPdas(
+      program.programId,
+      publicKey,
+      workerPk,
+    )
 
-    txStatus.value = "Approval USDC..."
-    const usdc = new ethers.Contract(props.usdcAddress, ABI_USDC, signer)
-    const approveTx = await usdc.approve(props.escrowAddress, amount)
-    await approveTx.wait()
-
-    txStatus.value = "Création du contrat d'escrow..."
-    const escrow = new ethers.Contract(props.escrowAddress, ABI_ESCROW, signer)
-    const tx = await escrow.createEscrow(props.freelancerWallet, amount)
-    const receipt = await tx.wait()
-
-    let escrowIdOnChain = null
-    for (const log of receipt.logs) {
-      try {
-        const parsed = escrow.interface.parseLog(log)
-        if (parsed?.name === "EscrowCreated") {
-          escrowIdOnChain = Number(parsed.args.escrowId)
-        }
-      } catch {}
+    const ataAddress = initializerAta.value
+    if (!ataAddress) {
+      txStatus.value = "ATA USDC introuvable pour l'employeur."
+      return
     }
 
-    const txHash = receipt.hash
+    txStatus.value = "On-chain: initialize_escrow..."
+    const signature = await initializeEscrow({
+      program,
+      amountUsdc: form.price,
+      initializer: publicKey,
+      worker: workerPk,
+      admin1: admin1Pk,
+      admin2: admin2Pk,
+      usdcMint: new PublicKey(props.usdcMint),
+      initializerUsdcAta: ataAddress,
+      vaultPda,
+      escrowStatePda,
+      feeBps: 500,
+    })
 
     txStatus.value = "Enregistrement backend..."
 
-    const res = await api.post("/api/contracts", {
+    const res = await api.post("/escrows/create", {
       title: form.title,
       description: form.description,
       checkpoints: form.checkpoints
@@ -212,11 +204,14 @@ async function submitForm() {
       timeline: form.timeline,
       amountUsdc: form.price,
       employerUuid: form.employer.uuid,
-      employerWallet,
+      employerWallet: publicKey.toBase58(),
       freelancerWallet: props.freelancerWallet,
-      txHash,
-      escrowIdOnChain,
-      chain: props.chain || "ethereum-mainnet",
+      programId: props.programId,
+      usdcMint: props.usdcMint,
+      network: props.network,
+      escrowStatePda: escrowStatePda.toBase58(),
+      vaultPda: vaultPda.toBase58(),
+      txSignature: signature,
     })
 
     txStatus.value = "Contrat créé."
@@ -268,7 +263,7 @@ onBeforeUnmount(() => {
         <h3>Generate a smart contract</h3>
         <p class="muted">Set financial details and validation checkpoints to launch escrow.</p>
       </div>
-      <button class="close" type="button" @click="close">×</button>
+      <button class="close" type="button" @click="close">x</button>
     </header>
 
     <div class="grid">
@@ -301,7 +296,7 @@ onBeforeUnmount(() => {
             <p class="funds-label">USDC balance</p>
             <p class="funds-balance">{{ usdcBalance.toFixed(2) }} USDC</p>
           </div>
-          <p v-if="usdcAddressMissing" class="warning">Adresse USDC manquante.</p>
+          <p v-if="usdcMintMissing" class="warning">Mint USDC manquant.</p>
           <p v-if="txStatus && txStatus.includes('réseau')" class="warning">{{ txStatus }}</p>
 
           <input
@@ -321,7 +316,7 @@ onBeforeUnmount(() => {
               v-model.number="form.price"
             />
             <span>USDC</span>
-            <button class="refresh" type="button" @click="loadUsdcBalance">↻</button>
+            <button class="refresh" type="button" @click="loadUsdcBalance">↺</button>
           </div>
         </div>
       </label>
@@ -460,7 +455,7 @@ h3 {
 }
 
 .select-shell::after {
-  content: "▼";
+  content: "↓";
   position: absolute;
   right: 14px;
   top: 50%;

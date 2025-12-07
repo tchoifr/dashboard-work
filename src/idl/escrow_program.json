@@ -1,0 +1,119 @@
+{
+  "version": "0.1.0",
+  "name": "escrow_program",
+  "instructions": [
+    {
+      "name": "initializeEscrow",
+      "accounts": [
+        { "name": "initializer", "isMut": true, "isSigner": true },
+        { "name": "worker", "isMut": false, "isSigner": false },
+        { "name": "admin1", "isMut": false, "isSigner": false },
+        { "name": "admin2", "isMut": false, "isSigner": false },
+        { "name": "escrowState", "isMut": true, "isSigner": false },
+        { "name": "vault", "isMut": true, "isSigner": false },
+        { "name": "initializerUsdcAta", "isMut": true, "isSigner": false },
+        { "name": "usdcMint", "isMut": false, "isSigner": false },
+        { "name": "tokenProgram", "isMut": false, "isSigner": false },
+        { "name": "systemProgram", "isMut": false, "isSigner": false }
+      ],
+      "args": [
+        { "name": "amount", "type": "u64" },
+        { "name": "feeBps", "type": "u16" },
+        { "name": "adminOne", "type": "publicKey" },
+        { "name": "adminTwo", "type": "publicKey" }
+      ]
+    },
+    {
+      "name": "workerAccept",
+      "accounts": [
+        { "name": "worker", "isMut": false, "isSigner": true },
+        { "name": "escrowState", "isMut": true, "isSigner": false }
+      ],
+      "args": []
+    },
+    {
+      "name": "openDispute",
+      "accounts": [
+        { "name": "signer", "isMut": false, "isSigner": true },
+        { "name": "escrowState", "isMut": true, "isSigner": false }
+      ],
+      "args": []
+    },
+    {
+      "name": "adminVote",
+      "accounts": [
+        { "name": "admin", "isMut": false, "isSigner": true },
+        { "name": "escrowState", "isMut": true, "isSigner": false }
+      ],
+      "args": [
+        { "name": "voteForWorker", "type": "bool" }
+      ]
+    },
+    {
+      "name": "releaseToWorker",
+      "accounts": [
+        { "name": "admin", "isMut": false, "isSigner": true },
+        { "name": "escrowState", "isMut": true, "isSigner": false },
+        { "name": "vault", "isMut": true, "isSigner": false },
+        { "name": "worker", "isMut": false, "isSigner": false },
+        { "name": "workerUsdcAta", "isMut": true, "isSigner": false },
+        { "name": "adminFeeAccount", "isMut": true, "isSigner": false },
+        { "name": "tokenProgram", "isMut": false, "isSigner": false }
+      ],
+      "args": []
+    },
+    {
+      "name": "refundToEmployer",
+      "accounts": [
+        { "name": "admin", "isMut": false, "isSigner": true },
+        { "name": "escrowState", "isMut": true, "isSigner": false },
+        { "name": "vault", "isMut": true, "isSigner": false },
+        { "name": "initializer", "isMut": false, "isSigner": false },
+        { "name": "initializerUsdcAta", "isMut": true, "isSigner": false },
+        { "name": "tokenProgram", "isMut": false, "isSigner": false }
+      ],
+      "args": []
+    }
+  ],
+  "accounts": [
+    {
+      "name": "escrowState",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          { "name": "initializer", "type": "publicKey" },
+          { "name": "worker", "type": "publicKey" },
+          { "name": "admin1", "type": "publicKey" },
+          { "name": "admin2", "type": "publicKey" },
+          { "name": "vault", "type": "publicKey" },
+          { "name": "amount", "type": "u64" },
+          { "name": "feeBps", "type": "u16" },
+          { "name": "status", "type": { "defined": "EscrowStatus" } },
+          { "name": "votesForWorker", "type": "u8" },
+          { "name": "votesForEmployer", "type": "u8" },
+          { "name": "finalized", "type": "bool" },
+          { "name": "resolvedForWorker", "type": { "option": "bool" } }
+        ]
+      }
+    }
+  ],
+  "types": [
+    {
+      "name": "EscrowStatus",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          { "name": "Initialized" },
+          { "name": "Accepted" },
+          { "name": "Dispute" },
+          { "name": "Released" },
+          { "name": "Refunded" }
+        ]
+      }
+    }
+  ],
+  "metadata": {
+    "address": "ReplaceWithProgramId",
+    "origin": "front-placeholder-idl"
+  }
+}
