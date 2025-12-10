@@ -57,10 +57,14 @@ export const useAuthStore = defineStore("auth", {
 
       // 4) Vérification backend
       const { data: verifyData } = await api.post("/auth/verify", {
-        walletAddress,
-        signature: signatureBase58,
-        chain: DEFAULT_CHAIN,
-      })
+      walletAddress,
+      signature: signatureBase58,
+      nonce: nonceData.nonce,   // 🔥 OBLIGATOIRE
+      username,                 // utile pour signup
+      chain: DEFAULT_CHAIN,
+    })
+
+
 
       // 5) Stocker la session
       this.token = verifyData.token
