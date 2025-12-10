@@ -5,12 +5,17 @@ const props = defineProps({
   conversations: Array,
   thread: Array,
   activeConversation: Object,
+  friends: {
+    type: Array,
+    default: () => [],
+  },
 })
 
-const emit = defineEmits(['select-conversation', 'send-message'])
+const emit = defineEmits(['select-conversation', 'send-message', 'start-friend-chat', 'delete-message'])
 
 const messageText = ref('')
-const activeName = computed(() => props.activeConversation?.name)
+const selectedFriend = ref('')
+const activeId = computed(() => props.activeConversation?.id)
 
 const sendMessage = () => {
   const value = messageText.value.trim()
@@ -22,6 +27,21 @@ const sendMessage = () => {
 const chooseConversation = (conversation) => {
   emit('select-conversation', conversation)
 }
+
+const startFriendConversation = () => {
+  if (!selectedFriend.value) return
+  emit('start-friend-chat', selectedFriend.value)
+  selectedFriend.value = ''
+}
+
+const removeMessage = (message) => {
+  if (!message?.messageId && !message?.id) return
+  if (!props.activeConversation?.id) return
+  emit('delete-message', {
+    conversationId: props.activeConversation.id,
+    messageId: message.messageId || message.id,
+  })
+}
 </script>
 
 <template>
@@ -32,31 +52,61 @@ const chooseConversation = (conversation) => {
     <div class="panel">
       <div class="conversations">
         <h3>Conversations</h3>
+        <form class="new-conversation" @submit.prevent="startFriendConversation">
+          <select v-model="selectedFriend">
+            <option value="" disabled>Select a friend</option>
+            <option
+              v-for="friend in friends"
+              :key="friend.uuid"
+              :value="friend.uuid"
+            >
+              {{ friend.label }}
+            </option>
+          </select>
+          <button type="submit" class="pill" :disabled="!selectedFriend">New Friend Chat</button>
+        </form>
         <div class="list">
           <article
             v-for="conv in conversations"
-            :key="conv.name"
-            :class="['conversation', { active: conv.name === activeName }]"
+            :key="conv.id || conv.name"
+            :class="['conversation', { active: conv.id === activeId }]"
             @click="chooseConversation(conv)"
             tabindex="0"
             @keyup.enter.prevent="chooseConversation(conv)"
           >
             <p class="name">{{ conv.name }}</p>
-            <p class="time">{{ conv.lastMessage }}</p>
+            <p class="preview">{{ conv.lastMessage }}</p>
+            <p v-if="conv.lastMessageAt" class="time">{{ conv.lastMessageAt }}</p>
+            <span v-if="conv.unreadCount" class="unread-count">{{ conv.unreadCount }}</span>
           </article>
+          <p v-if="!(conversations && conversations.length)" class="empty-state">Aucune conversation pour le moment.</p>
         </div>
       </div>
 
       <div class="chat">
         <h3>Messages</h3>
-        <div class="thread">
+        <div v-if="thread && thread.length" class="thread">
           <div v-for="msg in thread" :key="msg.id" :class="['bubble-row', msg.from]">
             <div class="bubble">
-              <p class="author">{{ msg.author }}</p>
+              <div class="bubble-head">
+                <p class="author">{{ msg.author }}</p>
+                <button
+                  v-if="msg.from === 'me' && (msg.messageId || msg.id)"
+                  class="bubble-delete"
+                  type="button"
+                  title="Delete message"
+                  @click="removeMessage(msg)"
+                >
+                  ×
+                </button>
+              </div>
               <p>{{ msg.text }}</p>
               <span class="bubble-time">{{ msg.time }}</span>
             </div>
           </div>
+        </div>
+        <div v-else class="thread empty-thread">
+          <p>Select a conversation or start a new one avec un ami.</p>
         </div>
         <div class="input-row">
           <input
@@ -113,6 +163,36 @@ h3 {
   gap: 10px;
 }
 
+.new-conversation {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.new-conversation select {
+  border-radius: 12px;
+  border: 1px solid rgba(120, 90, 255, 0.25);
+  background: rgba(255, 255, 255, 0.03);
+  color: #dfe7ff;
+  padding: 8px 10px;
+}
+
+.pill {
+  border-radius: 12px;
+  border: 1px solid rgba(120, 90, 255, 0.4);
+  background: linear-gradient(90deg, #6a48ff, #00c6ff);
+  color: #061227;
+  font-weight: 700;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.pill:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .conversation {
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid rgba(120, 90, 255, 0.2);
@@ -145,10 +225,26 @@ h3 {
   font-weight: 700;
 }
 
+.preview {
+  color: #8f9cb8;
+  font-size: 13px;
+  margin-top: 4px;
+}
+
 .time {
   color: #6d7c92;
-  font-size: 12px;
-  margin-top: 2px;
+  font-size: 11px;
+  margin-top: 4px;
+}
+
+.unread-count {
+  margin-top: 6px;
+  display: inline-block;
+  padding: 2px 8px;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  font-size: 11px;
+  color: #fff;
 }
 
 .chat {
@@ -169,6 +265,13 @@ h3 {
   flex-direction: column;
   gap: 12px;
   box-shadow: 0 10px 22px rgba(0, 0, 0, 0.32);
+}
+
+.empty-state,
+.empty-thread {
+  color: #6d7c92;
+  font-size: 13px;
+  text-align: center;
 }
 
 .thread::-webkit-scrollbar {
@@ -199,6 +302,13 @@ h3 {
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.28);
 }
 
+.bubble-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
 .bubble-row.me .bubble {
   background: rgba(120, 90, 255, 0.15);
   border-color: rgba(120, 90, 255, 0.32);
@@ -219,6 +329,15 @@ h3 {
   color: #6d7c92;
   font-size: 11px;
   margin-top: 6px;
+}
+
+.bubble-delete {
+  background: none;
+  border: none;
+  color: #f5b4d5;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
 }
 
 .input-row {

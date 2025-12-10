@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, watch } from "vue"
 import { useAuthStore } from "../store/auth"
+import { useConversationStore } from "../store/conversations"
 import api from "../services/api"
 import { DEFAULT_CHAIN } from "../services/solana"
 
@@ -27,6 +28,89 @@ import AuthLanding from "./AuthLanding.vue"
 const auth = useAuthStore()
 const showAuth = ref(!auth.isLogged)
 
+const baseProfile = () => ({
+  name: auth.user?.username || "User",
+  title: "",
+  location: "",
+  rate: "",
+  availability: "",
+  bio: "",
+  skills: [],
+  highlights: [],
+  portfolio: [],
+})
+
+const normalizeList = (value) => {
+  if (!value) return []
+  if (Array.isArray(value)) return value
+  if (typeof value === "string" && value.trim().startsWith("[")) {
+    try {
+      const parsed = JSON.parse(value)
+      return Array.isArray(parsed) ? parsed : []
+    } catch (error) {
+      // ignore malformed JSON and fallback to comma split
+    }
+  }
+  if (typeof value === "string") {
+    return value
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean)
+  }
+  return []
+}
+
+const mapUserToProfile = (user) => {
+  if (!user) return baseProfile()
+  const rate = typeof user.rate_hourly_usd === "number" && !Number.isNaN(user.rate_hourly_usd)
+    ? `${user.rate_hourly_usd} USDC/hr`
+    : user.rate_hourly_usd_label || user.rate || ""
+  let portfolio = []
+  if (Array.isArray(user.portfolio)) {
+    portfolio = user.portfolio
+  } else if (typeof user.portfolio === "string" && user.portfolio.trim().startsWith("[")) {
+    try {
+      const parsed = JSON.parse(user.portfolio)
+      portfolio = Array.isArray(parsed) ? parsed : []
+    } catch (error) {
+      portfolio = []
+    }
+  }
+  return {
+    name: user.username || user.name || baseProfile().name,
+    title: user.title || "",
+    location: user.location || "",
+    rate,
+    availability: user.availability || "",
+    bio: user.bio || user.about || "",
+    skills: normalizeList(user.skills),
+    highlights: normalizeList(user.highlights),
+    portfolio,
+  }
+}
+
+const formatProfileForSave = (profilePayload) => {
+  const parseRate = (label) => {
+    if (!label) return null
+    const numeric = parseFloat(String(label).replace(/[^\d.]/g, ""))
+    return Number.isFinite(numeric) ? numeric : null
+  }
+  const rateValue = parseRate(profilePayload.rate)
+  return {
+    username: profilePayload.name,
+    title: profilePayload.title,
+    location: profilePayload.location,
+    availability: profilePayload.availability,
+    bio: profilePayload.bio,
+    about: profilePayload.bio,
+    rate_hourly_usd: rateValue,
+    rate_hourly_usd_label: profilePayload.rate,
+    skills: profilePayload.skills,
+    highlights: profilePayload.highlights,
+    portfolio: profilePayload.portfolio,
+  }
+}
+
 // ==========================
 // TABS
 // ==========================
@@ -46,8 +130,11 @@ const activeTab = ref("Overview")
 // ==========================
 // PROFILE
 // ==========================
+const profileDetails = ref(baseProfile())
+const profileView = computed(() => profileDetails.value || baseProfile())
+
 const profile = computed(() => ({
-  username: auth.user?.username || "User",
+  username: profileView.value.name || auth.user?.username || "User",
   wallet: auth.user?.walletAddress,
   chain: auth.user?.chain || DEFAULT_CHAIN,
 }))
@@ -60,7 +147,6 @@ const activeContracts = ref([])
 // ==========================
 // WALLETS FOR CONTRACT MODAL
 // ==========================
-const employers = ref([])
 const freelancerWallet = computed(() => auth.user?.walletAddress || "")
 
 const walletConfig = ref({
@@ -83,6 +169,16 @@ const showContractViewer = ref(false)
 const previewContract = ref(null)
 
 // ==========================
+// CONVERSATIONS
+// ==========================
+const conversationStore = useConversationStore()
+const friendOptions = computed(() => conversationStore.friendOptions)
+const messageConversations = computed(() => conversationStore.conversationList)
+const activeConversation = computed(() => conversationStore.activeConversation)
+const activeThread = computed(() => conversationStore.activeThread)
+const unreadCount = computed(() => conversationStore.totalUnread)
+
+// ==========================
 // LOADERS
 // ==========================
 async function loadMyContracts() {
@@ -92,20 +188,6 @@ async function loadMyContracts() {
     activeContracts.value = res.data || []
   } catch (e) {
     console.error("Load contracts failed", e)
-  }
-}
-
-async function loadEmployers() {
-  if (!auth.isLogged) return
-  try {
-    const { data } = await api.get("/users")
-    employers.value = (data || []).map((u) => ({
-      uuid: u.uuid,
-      label: u.username || u.walletAddress,
-      walletAddress: u.walletAddress,
-    }))
-  } catch (e) {
-    console.error(e)
   }
 }
 
@@ -122,6 +204,33 @@ async function loadWalletConfig() {
     }
   } catch (e) {
     console.error("Load wallet config failed", e)
+  }
+}
+
+async function loadProfile() {
+  if (!auth.isLogged || !auth.user?.uuid) {
+    profileDetails.value = baseProfile()
+    return
+  }
+  try {
+    const { data } = await api.get(`/users/${auth.user.uuid}`)
+    profileDetails.value = mapUserToProfile(data)
+  } catch (error) {
+    console.error("Failed to load profile", error)
+    profileDetails.value = mapUserToProfile({
+      username: auth.user?.username,
+    })
+  }
+}
+
+// ==========================
+async function loadMessagingData() {
+  if (!auth.isLogged) return
+  try {
+    await conversationStore.fetchConversations()
+    conversationStore.fetchFriends()
+  } catch (error) {
+    console.error("Failed to load messaging data", error)
   }
 }
 
@@ -162,7 +271,56 @@ function handleConnected({ user, token }) {
   showAuth.value = false
   loadWalletConfig()
   loadMyContracts()
-  loadEmployers()
+  loadMessagingData()
+  loadProfile()
+}
+
+async function handleSelectConversation(conversation) {
+  try {
+    await conversationStore.selectConversation(conversation)
+  } catch (error) {
+    console.error(error)
+  }
+}
+
+async function handleSendMessage(body) {
+  try {
+    await conversationStore.sendMessage(body)
+  } catch (error) {
+    alert("Unable to send the message right now.")
+    console.error(error)
+  }
+}
+
+async function handleStartFriendChat(friendId) {
+  if (!friendId) return
+  try {
+    await conversationStore.createPrivateConversation(friendId)
+  } catch (error) {
+    console.error(error)
+    alert("Impossible d'ouvrir la conversation.")
+  }
+}
+
+async function handleDeleteMessage(payload) {
+  try {
+    await conversationStore.deleteMessage(payload)
+  } catch (error) {
+    console.error(error)
+    alert("Suppression impossible.")
+  }
+}
+
+async function handleSaveProfile(updatedProfile) {
+  if (!auth.user?.uuid) return
+  try {
+    const payload = formatProfileForSave(updatedProfile)
+    const { data } = await api.put(`/users/${auth.user.uuid}`, payload)
+    profileDetails.value = mapUserToProfile(data || { ...updatedProfile })
+  } catch (error) {
+    console.error("Failed to save profile", error)
+    alert("La sauvegarde du profil a échoué.")
+  }
 }
 
 // ==========================
@@ -175,7 +333,11 @@ watch(
     if (logged) {
       loadWalletConfig()
       loadMyContracts()
-      loadEmployers()
+      loadMessagingData()
+      loadProfile()
+    } else {
+      conversationStore.reset()
+      profileDetails.value = baseProfile()
     }
   },
 )
@@ -187,7 +349,8 @@ onMounted(() => {
   if (auth.isLogged) {
     loadWalletConfig()
     loadMyContracts()
-    loadEmployers()
+    loadMessagingData()
+    loadProfile()
   }
 })
 </script>
@@ -218,7 +381,13 @@ onMounted(() => {
         :class="['tab', { active: activeTab === tab }]"
         @click="activeTab = tab"
       >
-        {{ tab }}
+        <span>{{ tab }}</span>
+        <span
+          v-if="tab === 'Messages' && unreadCount"
+          class="tab-badge"
+        >
+          {{ unreadCount }}
+        </span>
       </button>
     </nav>
 
@@ -238,9 +407,23 @@ onMounted(() => {
 
     <RechargerJobsSection v-else-if="activeTab === 'Find a job'" />
 
-    <MessagesSection v-else-if="activeTab === 'Messages'" />
+    <MessagesSection
+      v-else-if="activeTab === 'Messages'"
+      :conversations="messageConversations"
+      :thread="activeThread"
+      :active-conversation="activeConversation"
+      :friends="friendOptions"
+      @select-conversation="handleSelectConversation"
+      @send-message="handleSendMessage"
+      @start-friend-chat="handleStartFriendChat"
+      @delete-message="handleDeleteMessage"
+    />
 
-    <ProfileSection v-else-if="activeTab === 'Profile'" :profile="profile" />
+    <ProfileSection
+      v-else-if="activeTab === 'Profile'"
+      :profile="profileView"
+      @save-profile="handleSaveProfile"
+    />
 
     <DaoDisputesSection v-else-if="activeTab === 'DAO'" />
 
@@ -255,7 +438,7 @@ onMounted(() => {
       @click.self="closeCreateContract"
     >
       <ContractCreationModal
-        :employers="employers"
+        :employers="friendOptions"
         :freelancer-wallet="freelancerWallet"
         :program-id="programId"
         :usdc-mint="usdcMint"
@@ -422,6 +605,9 @@ onMounted(() => {
   cursor: pointer;
   transition: all 0.15s ease;
   box-shadow: 0 6px 14px rgba(0, 0, 0, 0.25);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .tab:hover {
@@ -436,6 +622,16 @@ onMounted(() => {
   box-shadow:
     0 10px 24px rgba(0, 102, 255, 0.28),
     0 0 12px rgba(106, 72, 255, 0.25);
+}
+
+.tab-badge {
+  min-width: 20px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  font-size: 11px;
+  text-align: center;
 }
 
 @media (max-width: 720px) {
