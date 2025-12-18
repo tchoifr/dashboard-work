@@ -150,13 +150,15 @@ const activeContracts = ref([])
 const freelancerWallet = computed(() => auth.user?.walletAddress || "")
 
 const walletConfig = ref({
-  usdcMint: "",
-  programId: "",
+  usdcMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+  programId: "11111111111111111111111111111111",
   rpcUrl: import.meta.env.VITE_SOLANA_RPC || "https://api.devnet.solana.com",
   network: DEFAULT_CHAIN,
-  admin1: "",
-  admin2: "",
+  admin1: "11111111111111111111111111111111",
+  admin2: "11111111111111111111111111111111"
 })
+
+
 
 const programId = computed(() => walletConfig.value.programId)
 const usdcMint = computed(() => walletConfig.value.usdcMint)
@@ -194,16 +196,21 @@ async function loadMyContracts() {
 async function loadWalletConfig() {
   try {
     const { data } = await api.get("/wallet/config")
+
     walletConfig.value = {
-      usdcMint: data.usdcMint || "",
-      programId: data.programId || "",
-      rpcUrl: data.rpcUrl || walletConfig.value.rpcUrl,
-      network: data.network || DEFAULT_CHAIN,
-      admin1: data.admin1 || "",
-      admin2: data.admin2 || "",
+      usdcMint: data.usdcMint ?? walletConfig.value.usdcMint,
+      programId: data.programId ?? walletConfig.value.programId,
+      rpcUrl: data.rpcUrl ?? walletConfig.value.rpcUrl,
+      network: data.network ?? DEFAULT_CHAIN,
+
+      // 🔥 IMPORTANT : ne jamais forcer ""
+      admin1: data.admin1 ?? null,
+      admin2: data.admin2 ?? null,
     }
+
+    console.log("✅ Wallet config loaded:", walletConfig.value)
   } catch (e) {
-    console.error("Load wallet config failed", e)
+    console.error("❌ Load wallet config failed", e)
   }
 }
 

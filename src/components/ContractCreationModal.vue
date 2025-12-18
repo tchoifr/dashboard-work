@@ -16,7 +16,17 @@ import {
   initializeEscrow,
   loadProgram,
 } from "../services/solana"
+const admin1Key = computed(() =>
+  props.admin1 && props.admin1.length > 0
+    ? new PublicKey(props.admin1)
+    : SystemProgram.programId
+)
 
+const admin2Key = computed(() =>
+  props.admin2 && props.admin2.length > 0
+    ? new PublicKey(props.admin2)
+    : SystemProgram.programId
+)
 const props = defineProps({
   employers: Array,          
   freelancerWallet: String,  
@@ -103,6 +113,7 @@ async function ensurePhantom() {
     txStatus.value = "Installe Phantom."
     throw new Error("Phantom manquant")
   }
+  console.log("freelancerWallet =", props.freelancerWallet)
   const { publicKey } = await connectPhantom()
   walletAddress.value = publicKey?.toBase58() || ""
   return { phantom, publicKey }
@@ -161,11 +172,17 @@ async function submitForm() {
 
     const connection = getConnection(props.rpcUrl)
     const provider = getAnchorProvider(connection, phantom)
+    console.log("programId =", props.programId)
+console.log("usdcMint =", props.usdcMint)
+console.log("admin1 =", props.admin1)
+console.log("admin2 =", props.admin2)
+
     const program = loadProgram(idl, props.programId, provider)
 
     const workerPk = new PublicKey(props.freelancerWallet)
-    const admin1Pk = props.admin1 ? new PublicKey(props.admin1) : publicKey
-    const admin2Pk = props.admin2 ? new PublicKey(props.admin2) : publicKey
+    const admin1Pk = admin1Key.value
+    const admin2Pk = admin2Key.value
+
 
     const { escrowStatePda, vaultPda } = await findEscrowPdas(
       program.programId,
