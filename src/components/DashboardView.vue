@@ -184,7 +184,7 @@ const unreadCount = computed(() => conversationStore.totalUnread)
 async function loadMyContracts() {
   if (!auth.isLogged) return
   try {
-    const res = await api.get("/api/contracts/me")
+    const res = await api.get("/contracts/me")
     activeContracts.value = res.data || []
   } catch (e) {
     console.error("Load contracts failed", e)
@@ -193,7 +193,7 @@ async function loadMyContracts() {
 
 async function loadWalletConfig() {
   try {
-    const { data } = await api.get("/api/wallet/config")
+    const { data } = await api.get("/wallet/config")
     walletConfig.value = {
       usdcMint: data.usdcMint || "",
       programId: data.programId || "",
@@ -226,13 +226,10 @@ async function loadProfile() {
 // ==========================
 async function loadMessagingData() {
   if (!auth.isLogged) return
-  try {
-    await conversationStore.fetchConversations()
-    conversationStore.fetchFriends()
-  } catch (error) {
-    console.error("Failed to load messaging data", error)
-  }
+  await conversationStore.fetchFriends()
+  await conversationStore.fetchConversations()
 }
+
 
 // ==========================
 // MODAL ACTIONS
@@ -275,13 +272,10 @@ function handleConnected({ user, token }) {
   loadProfile()
 }
 
-async function handleSelectConversation(conversation) {
-  try {
-    await conversationStore.selectConversation(conversation)
-  } catch (error) {
-    console.error(error)
-  }
+async function handleSelectConversation(conversationId) {
+  await conversationStore.selectConversation(conversationId)
 }
+
 
 async function handleSendMessage(body) {
   try {

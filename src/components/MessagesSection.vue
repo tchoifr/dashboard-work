@@ -1,124 +1,116 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { ref, computed } from "vue"
 
 const props = defineProps({
-  conversations: Array,
-  thread: Array,
+  conversations: { type: Array, default: () => [] },
+  thread: { type: Array, default: () => [] },
   activeConversation: Object,
-  friends: {
-    type: Array,
-    default: () => [],
-  },
+  friends: { type: Array, default: () => [] },
 })
 
-const emit = defineEmits(['select-conversation', 'send-message', 'start-friend-chat', 'delete-message'])
+const emit = defineEmits([
+  "select-conversation",
+  "send-message",
+  "start-friend-chat",
+  "delete-conversation",
+])
 
-const messageText = ref('')
-const selectedFriend = ref('')
+const messageText = ref("")
+const selectedFriend = ref("")
+
 const activeId = computed(() => props.activeConversation?.id)
 
-const sendMessage = () => {
+const friendOptions = computed(() =>
+  props.friends.map((friend) => ({
+    value: friend.value ?? friend.uuid,
+    label: friend.label ?? friend.username ?? friend.name ?? "Unknown friend",
+  })),
+)
+
+function sendMessage() {
   const value = messageText.value.trim()
-  if (!value || !props.activeConversation) return
-  emit('send-message', value)
-  messageText.value = ''
+  if (!value || !activeId.value) return
+  emit("send-message", value)
+  messageText.value = ""
 }
 
-const chooseConversation = (conversation) => {
-  emit('select-conversation', conversation)
-}
-
-const startFriendConversation = () => {
+function startFriendConversation() {
   if (!selectedFriend.value) return
-  emit('start-friend-chat', selectedFriend.value)
-  selectedFriend.value = ''
-}
-
-const removeMessage = (message) => {
-  if (!message?.messageId && !message?.id) return
-  if (!props.activeConversation?.id) return
-  emit('delete-message', {
-    conversationId: props.activeConversation.id,
-    messageId: message.messageId || message.id,
-  })
+  emit("start-friend-chat", selectedFriend.value)
+  selectedFriend.value = ""
 }
 </script>
 
 <template>
   <section class="messages">
-    <div class="panel-header">
-      <h2>Messages</h2>
-    </div>
     <div class="panel">
-      <div class="conversations">
+      <!-- LEFT -->
+      <aside class="conversations">
         <h3>Conversations</h3>
-        <form class="new-conversation" @submit.prevent="startFriendConversation">
-          <select v-model="selectedFriend">
-            <option value="" disabled>Select a friend</option>
-            <option
-              v-for="friend in friends"
-              :key="friend.uuid"
-              :value="friend.uuid"
-            >
-              {{ friend.label }}
-            </option>
-          </select>
-          <button type="submit" class="pill" :disabled="!selectedFriend">New Friend Chat</button>
-        </form>
-        <div class="list">
-          <article
-            v-for="conv in conversations"
-            :key="conv.id || conv.name"
-            :class="['conversation', { active: conv.id === activeId }]"
-            @click="chooseConversation(conv)"
-            tabindex="0"
-            @keyup.enter.prevent="chooseConversation(conv)"
-          >
-            <p class="name">{{ conv.name }}</p>
-            <p class="preview">{{ conv.lastMessage }}</p>
-            <p v-if="conv.lastMessageAt" class="time">{{ conv.lastMessageAt }}</p>
-            <span v-if="conv.unreadCount" class="unread-count">{{ conv.unreadCount }}</span>
-          </article>
-          <p v-if="!(conversations && conversations.length)" class="empty-state">Aucune conversation pour le moment.</p>
-        </div>
-      </div>
 
-      <div class="chat">
-        <h3>Messages</h3>
-        <div v-if="thread && thread.length" class="thread">
-          <div v-for="msg in thread" :key="msg.id" :class="['bubble-row', msg.from]">
-            <div class="bubble">
-              <div class="bubble-head">
-                <p class="author">{{ msg.author }}</p>
-                <button
-                  v-if="msg.from === 'me' && (msg.messageId || msg.id)"
-                  class="bubble-delete"
-                  type="button"
-                  title="Delete message"
-                  @click="removeMessage(msg)"
-                >
-                  ×
-                </button>
-              </div>
-              <p>{{ msg.text }}</p>
-              <span class="bubble-time">{{ msg.time }}</span>
-            </div>
+        <!-- NEW CHAT -->
+        <form class="new-chat" @submit.prevent="startFriendConversation">
+          <div class="select-shell">
+            <select v-model="selectedFriend">
+              <option disabled value="">Select a friend</option>
+              <option
+                v-for="friend in friendOptions"
+                :key="friend.value"
+                :value="friend.value"
+              >
+                {{ friend.label }}
+              </option>
+            </select>
+          </div>
+          <button class="pill" :disabled="!selectedFriend">New</button>
+        </form>
+
+        <!-- LIST -->
+        <article
+          v-for="conv in conversations"
+          :key="conv.id"
+          :class="['conversation', { active: conv.id === activeId }]"
+        >
+          <div @click="$emit('select-conversation', conv.id)">
+            <strong>{{ conv.name }}</strong>
+            <small>{{ conv.lastMessage }}</small>
+          </div>
+
+          <button
+            class="delete"
+            @click.stop="$emit('delete-conversation', conv.id)"
+            title="Delete conversation"
+          >
+            🗑️
+          </button>
+        </article>
+      </aside>
+
+      <!-- RIGHT -->
+      <main class="chat">
+        <div v-if="thread.length" class="thread">
+          <div
+            v-for="msg in thread"
+            :key="msg.id"
+            :class="['bubble', { me: msg.fromMe }]"
+          >
+            <strong>{{ msg.author }}</strong>
+            <p>{{ msg.text }}</p>
+            <small>{{ msg.time }}</small>
           </div>
         </div>
-        <div v-else class="thread empty-thread">
-          <p>Select a conversation or start a new one avec un ami.</p>
+
+        <div v-else class="empty">
+          Select a conversation
         </div>
-        <div class="input-row">
-          <input
-            v-model="messageText"
-            type="text"
-            placeholder="Type a message..."
-            :disabled="!activeConversation"
-            @keyup.enter.prevent="sendMessage"
-          />
-          <button class="send" :disabled="!activeConversation" @click="sendMessage">➤</button>
-        </div>
-      </div>
+
+        <input
+          v-model="messageText"
+          placeholder="Type a message"
+          :disabled="!activeConversation"
+          @keyup.enter="sendMessage"
+        />
+      </main>
     </div>
   </section>
 </template>
@@ -163,19 +155,57 @@ h3 {
   gap: 10px;
 }
 
-.new-conversation {
+.new-chat {
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 8px;
   margin-bottom: 12px;
 }
 
-.new-conversation select {
+.new-chat select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background: transparent !important;
+  background-image: none !important;
+}
+
+.select-shell {
+  position: relative;
+  width: 100%;
+}
+
+.select-shell::after {
+  content: "↓";
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  color: #d9c5ff;
+  font-size: 15px;
+  opacity: 0.85;
+}
+
+.select-shell select {
   border-radius: 12px;
   border: 1px solid rgba(120, 90, 255, 0.25);
   background: rgba(255, 255, 255, 0.03);
   color: #dfe7ff;
   padding: 8px 10px;
+  padding-right: 34px;
+  width: 100%;
+}
+
+.select-shell select:focus {
+  outline: none;
+  border-color: rgba(120, 90, 255, 0.55);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.select-shell select option {
+  background: #0a0f24;
+  color: #eae7ff;
 }
 
 .pill {

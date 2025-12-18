@@ -2,85 +2,22 @@ import { defineStore } from "pinia"
 import api from "../services/api"
 import { useAuthStore } from "./auth"
 
-const getCurrentUserId = () => useAuthStore().user?.uuid || null
+const normalizeId = (v) => String(v ?? "")
 
-// Normalisation d'un user
-const normalizeUser = (payload) => {
-  if (!payload || typeof payload !== "object") return null
-  const user = payload.friend || payload.user || payload.partner || payload.profile || payload
-
-  return {
-    uuid: user.uuid || user.id || null,
-    username: user.username || user.walletAddress || "Unknown user",
-    walletAddress: user.walletAddress || "",
-  }
-}
-
-const formatRelativeTime = (value) => {
-  if (!value) return ""
-  const date = new Date(value)
-  const diffMs = Date.now() - date.getTime()
-
-  const m = 60 * 1000
-  const h = m * 60
-  const d = h * 24
-
-  if (diffMs < m) return "Just now"
-  if (diffMs < h) return `${Math.floor(diffMs / m)}m ago`
-  if (diffMs < d) return `${Math.floor(diffMs / h)}h ago`
-  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" })
-}
-
-const formatTimeLabel = (value) => {
-  if (!value) return ""
-  const date = new Date(value)
-  return date.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
+const formatTime = (date) =>
+  new Date(date).toLocaleTimeString([], {
     hour: "2-digit",
     minute: "2-digit",
   })
-}
 
-// Transforme un message en bulle d'affichage
-const toMessageBubble = (message) => {
-  const currentUserId = getCurrentUserId()
-  const sender = message.sender || {}
-  const senderUuid = sender.uuid
-  const from = senderUuid === currentUserId ? "me" : "client"
-
-  return {
-    id: message.id,
-    messageId: message.id,
-    from,
-    author: from === "me" ? "You" : sender.username || sender.walletAddress || "Unknown",
-    text: message.body,
-    time: formatTimeLabel(message.createdAt),
-    createdAt: message.createdAt,
-  }
-}
-
-// Liste des participants
-const extractParticipants = (conversation) => conversation?.participants || []
-
-// Preview conversation dans la liste de gauche
-const toConversationPreview = (conversation, currentUserId) => {
-  const participants = extractParticipants(conversation).map((p) => normalizeUser(p))
-  const counterpart = participants.find((u) => u.uuid !== currentUserId) || participants[0]
-
-  const lastMessage = conversation.lastMessage
-  const lastMessageLabel = lastMessage ? lastMessage.body : ""
-  const lastMessageTime = lastMessage ? formatRelativeTime(lastMessage.createdAt) : ""
-
-  return {
-    id: conversation.id,
-    name: counterpart?.username || "Conversation",
-    lastMessage: lastMessageLabel || "No messages yet",
-    lastMessageAt: lastMessageTime,
-    unreadCount: 0, // gestion plus tard
-    participants,
-    raw: conversation,
-  }
+const formatRelativeTime = (date) => {
+  const diff = Date.now() - new Date(date).getTime()
+  const minutes = Math.floor(diff / 60000)
+  if (minutes < 1) return "à l’instant"
+  if (minutes < 60) return `${minutes} min`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours} h`
+  return `${Math.floor(hours / 24)} j`
 }
 
 export const useConversationStore = defineStore("conversations", {
@@ -89,129 +26,165 @@ export const useConversationStore = defineStore("conversations", {
     conversations: [],
     messagesByConversation: {},
     activeConversationId: null,
+
+    loadingFriends: false,
     loadingConversations: false,
     loadingMessages: false,
     sendingMessage: false,
   }),
 
   getters: {
-    conversationList(state) {
-      const uid = getCurrentUserId()
-      return state.conversations.map((c) => toConversationPreview(c, uid))
-    },
+    friendOptions: (state) =>
+      state.friends.map((f) => ({
+        label: f.username,
+        value: f.uuid,
+      })),
 
     activeConversation(state) {
-      if (!state.activeConversationId) return null
-      const uid = getCurrentUserId()
-      const raw = state.conversations.find((c) => c.id === state.activeConversationId)
-      return raw ? toConversationPreview(raw, uid) : null
+      return state.conversations.find(
+        (c) => normalizeId(c.id) === normalizeId(state.activeConversationId),
+      )
     },
 
-    activeThread(state) {
-      return state.messagesByConversation[state.activeConversationId] || []
+    activeMessages(state) {
+      return (
+        state.messagesByConversation[normalizeId(state.activeConversationId)] ||
+        []
+      )
+    },
+
+    conversationPreviews(state) {
+      return state.conversations.map((c) => ({
+        id: normalizeId(c.id),
+        title: c.participants.map((p) => p.username).join(", "),
+        lastMessage: c.lastMessage?.body || "",
+        time: c.lastMessage
+          ? formatRelativeTime(c.lastMessage.createdAt)
+          : "",
+      }))
     },
   },
 
   actions: {
-    reset() {
-      this.friends = []
-      this.conversations = []
-      this.messagesByConversation = {}
-      this.activeConversationId = null
+    // ---------------- FRIENDS ----------------
+    async fetchFriends() {
+      const auth = useAuthStore()
+      if (!auth.isLogged) return
+
+      this.loadingFriends = true
+      try {
+        const { data } = await api.get("/friends")
+        this.friends = Array.isArray(data) ? data : []
+      } catch (e) {
+        console.error("fetchFriends failed", e)
+        this.friends = []
+      } finally {
+        this.loadingFriends = false
+      }
     },
 
-    // Fetch all conversations
+    // ---------------- CONVERSATIONS ----------------
     async fetchConversations() {
+      const auth = useAuthStore()
+      if (!auth.isLogged) return
+
       this.loadingConversations = true
       try {
         const { data } = await api.get("/conversations")
         this.conversations = Array.isArray(data) ? data : []
-      } catch (error) {
-        console.error("Failed to load conversations", error)
+      } catch (e) {
+        console.error("fetchConversations failed", e)
+        this.conversations = []
       } finally {
         this.loadingConversations = false
       }
     },
 
-    // Fetch messages for 1 conversation
-    async fetchMessages(conversationId) {
-      if (!conversationId) return
-      this.loadingMessages = true
+    async createPrivateConversation(friendUuid) {
+      const auth = useAuthStore()
+      if (!auth.isLogged) return
 
       try {
-        const { data } = await api.get(`/conversations/${conversationId}/messages`)
+        const { data } = await api.post("/conversations/private", {
+          user_id: friendUuid,
+        })
 
-        // BACK SYMFONY = { conversation: {...}, messages: [...] }
-        const messages = data.messages || []
+        const id = normalizeId(data.id)
+        if (!id) throw new Error("Conversation id manquant")
 
-        this.messagesByConversation[conversationId] = messages.map((m) =>
-          toMessageBubble(m)
+        if (!this.conversations.find((c) => normalizeId(c.id) === id)) {
+          this.conversations.unshift(data)
+        }
+
+        await this.selectConversation(id)
+      } catch (e) {
+        console.error("createPrivateConversation failed", e)
+        alert("Impossible d’ouvrir la conversation")
+      }
+    },
+
+    // ---------------- MESSAGES ----------------
+    async selectConversation(conversationId) {
+      this.activeConversationId = normalizeId(conversationId)
+      await this.fetchMessages(conversationId)
+    },
+
+    async fetchMessages(conversationId) {
+      const auth = useAuthStore()
+      if (!auth.isLogged) return
+
+      this.loadingMessages = true
+      try {
+        const { data } = await api.get(
+          `/conversations/${conversationId}/messages`,
         )
-      } catch (error) {
-        console.error("Failed to load messages", error)
-        this.messagesByConversation[conversationId] = []
+
+        this.messagesByConversation[normalizeId(conversationId)] =
+          Array.isArray(data)
+            ? data.map((m) => ({
+                id: m.id,
+                text: m.body,
+                author: m.sender.username,
+                fromMe: m.sender.uuid === auth.userUuid,
+                time: formatTime(m.createdAt),
+              }))
+            : []
+      } catch (e) {
+        console.error("fetchMessages failed", e)
       } finally {
         this.loadingMessages = false
       }
     },
 
-    // Click conversation
-    async selectConversation(conversationOrId) {
-      const id = typeof conversationOrId === "string" ? conversationOrId : conversationOrId.id
-      if (!id) return
-
-      this.activeConversationId = id
-      await this.fetchMessages(id)
-      await this.fetchConversations()
-    },
-
-    // Create private chat
-    async createPrivateConversation(userId) {
-      if (!userId) return null
-
-      try {
-        const { data } = await api.post("/conversations/private", { user_id: userId })
-
-        if (data?.id && !this.conversations.some((c) => c.id === data.id)) {
-          this.conversations.unshift(data)
-        }
-
-        if (data?.id) await this.selectConversation(data.id)
-
-        return data
-      } catch (error) {
-        console.error("Failed to create conversation", error)
-        throw error
-      }
-    },
-
-    // Send message
     async sendMessage(body) {
-      const conversationId = this.activeConversationId
-      const trimmed = body?.trim()
-      if (!conversationId || !trimmed) return
+      if (!this.activeConversationId) return
 
       this.sendingMessage = true
       try {
         const { data } = await api.post("/messages", {
-          conversation_id: conversationId,
-          body: trimmed,
+          conversation_id: this.activeConversationId,
+          body,
         })
 
-        const formatted = toMessageBubble(data)
-
-        if (!this.messagesByConversation[conversationId]) {
-          this.messagesByConversation[conversationId] = []
-        }
-
-        this.messagesByConversation[conversationId].push(formatted)
-
-        await this.fetchConversations()
-      } catch (error) {
-        console.error("Failed to send message", error)
+        this.activeMessages.push({
+          id: data.id,
+          text: data.body,
+          author: data.sender.username,
+          fromMe: true,
+          time: formatTime(data.createdAt),
+        })
+      } catch (e) {
+        console.error("sendMessage failed", e)
       } finally {
         this.sendingMessage = false
       }
+    },
+
+    reset() {
+      this.friends = []
+      this.conversations = []
+      this.messagesByConversation = {}
+      this.activeConversationId = null
     },
   },
 })
