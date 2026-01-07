@@ -1,0 +1,14 @@
+/home/frgiorgi/Projets/perso/projectweb3/dashboard-work/target/release/deps/libserde-f10baa4ea3e76d70.rmeta: /home/frgiorgi/.cargo/registry/src/index.crates.io-6f17d22bba15001f/serde-1.0.228/src/lib.rs /home/frgiorgi/.cargo/registry/src/index.crates.io-6f17d22bba15001f/serde-1.0.228/src/integer128.rs /home/frgiorgi/.cargo/registry/src/index.crates.io-6f17d22bba15001f/serde-1.0.228/src/private/mod.rs /home/frgiorgi/.cargo/registry/src/index.crates.io-6f17d22bba15001f/serde-1.0.228/src/private/de.rs /home/frgiorgi/.cargo/registry/src/index.crates.io-6f17d22bba15001f/serde-1.0.228/src/private/ser.rs /home/frgiorgi/Projets/perso/projectweb3/dashboard-work/target/release/build/serde-3cf6baa3c749e6e9/out/private.rs
+
+/home/frgiorgi/Projets/perso/projectweb3/dashboard-work/target/release/deps/libserde-f10baa4ea3e76d70.rlib: /home/frgiorgi/.cargo/registry/src/index.crates.io-6f17d22bba15001f/serde-1.0.228/src/lib.rs /home/frgiorgi/.cargo/registry/src/index.crates.io-6f17d22bba15001f/serde-1.0.228/src/integer128.rs /home/frgiorgi/.cargo/registry/src/index.crates.io-6f17d22bba15001f/serde-1.0.228/src/private/mod.rs /home/frgiorgi/.cargo/registry/src/index.crates.io-6f17d22bba15001f/serde-1.0.228/src/private/de.rs /home/frgiorgi/.cargo/registry/src/index.crates.io-6f17d22bba15001f/serde-1.0.228/src/private/ser.rs /home/frgiorgi/Projets/perso/projectweb3/dashboard-work/target/release/build/serde-3cf6baa3c749e6e9/out/private.rs
+
+/home/frgiorgi/Projets/perso/projectweb3/dashboard-work/target/release/deps/serde-f10baa4ea3e76d70.d: /home/frgiorgi/.cargo/registry/src/index.crates.io-6f17d22bba15001f/serde-1.0.228/src/lib.rs /home/frgiorgi/.cargo/registry/src/index.crates.io-6f17d22bba15001f/serde-1.0.228/src/integer128.rs /home/frgiorgi/.cargo/registry/src/index.crates.io-6f17d22bba15001f/serde-1.0.228/src/private/mod.rs /home/frgiorgi/.cargo/registry/src/index.crates.io-6f17d22bba15001f/serde-1.0.228/src/private/de.rs /home/frgiorgi/.cargo/registry/src/index.crates.io-6f17d22bba15001f/serde-1.0.228/src/private/ser.rs /home/frgiorgi/Projets/perso/projectweb3/dashboard-work/target/release/build/serde-3cf6baa3c749e6e9/out/private.rs
+
+/home/frgiorgi/.cargo/registry/src/index.crates.io-6f17d22bba15001f/serde-1.0.228/src/lib.rs:
+/home/frgiorgi/.cargo/registry/src/index.crates.io-6f17d22bba15001f/serde-1.0.228/src/integer128.rs:
+/home/frgiorgi/.cargo/registry/src/index.crates.io-6f17d22bba15001f/serde-1.0.228/src/private/mod.rs:
+/home/frgiorgi/.cargo/registry/src/index.crates.io-6f17d22bba15001f/serde-1.0.228/src/private/de.rs:
+/home/frgiorgi/.cargo/registry/src/index.crates.io-6f17d22bba15001f/serde-1.0.228/src/private/ser.rs:
+/home/frgiorgi/Projets/perso/projectweb3/dashboard-work/target/release/build/serde-3cf6baa3c749e6e9/out/private.rs:
+
+# env-dep:OUT_DIR=/home/frgiorgi/Projets/perso/projectweb3/dashboard-work/target/release/build/serde-3cf6baa3c749e6e9/out
