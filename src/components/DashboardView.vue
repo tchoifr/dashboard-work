@@ -150,14 +150,17 @@ const activeContracts = ref([])
 const freelancerWallet = computed(() => auth.user?.walletAddress || "")
 
 const walletConfig = ref({
-  usdcMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-  programId: "11111111111111111111111111111111",
-  rpcUrl: import.meta.env.VITE_SOLANA_RPC || "https://api.devnet.solana.com",
+  usdcMint: import.meta.env.VITE_SOLANA_USDC_MINT,
+  programId: import.meta.env.VITE_SOLANA_PROGRAM_ID,
+  rpcUrl: import.meta.env.VITE_SOLANA_RPC,
   network: DEFAULT_CHAIN,
-  admin1: "11111111111111111111111111111111",
-  admin2: "11111111111111111111111111111111"
+  feeWallet: import.meta.env.VITE_SOLANA_FEE_WALLET,
+  admin1: import.meta.env.VITE_SOLANA_ADMIN_1,
+  admin2: import.meta.env.VITE_SOLANA_ADMIN_2,
 })
 
+const isPlaceholderKey = (value) =>
+  !value || value === "11111111111111111111111111111111"
 
 
 const programId = computed(() => walletConfig.value.programId)
@@ -202,6 +205,7 @@ async function loadWalletConfig() {
       programId: data.programId ?? walletConfig.value.programId,
       rpcUrl: data.rpcUrl ?? walletConfig.value.rpcUrl,
       network: data.network ?? DEFAULT_CHAIN,
+      feeWallet: data.feeWallet ?? walletConfig.value.feeWallet,
 
       // 🔥 IMPORTANT : ne jamais forcer ""
       admin1: data.admin1 ?? null,
@@ -242,12 +246,39 @@ async function loadMessagingData() {
 // MODAL ACTIONS
 // ==========================
 function openCreateContract() {
-  if (!walletConfig.value.programId || !walletConfig.value.usdcMint) {
+  console.group("🧪 Solana config check")
+
+  console.log("programId:", walletConfig.value.programId)
+  console.log("usdcMint:", walletConfig.value.usdcMint)
+  console.log("feeWallet:", walletConfig.value.feeWallet)
+  console.log("admin1:", walletConfig.value.admin1)
+  console.log("admin2:", walletConfig.value.admin2)
+
+  const checks = {
+    programId: isPlaceholderKey(walletConfig.value.programId),
+    usdcMint: isPlaceholderKey(walletConfig.value.usdcMint),
+    feeWallet: isPlaceholderKey(walletConfig.value.feeWallet),
+    admin1: isPlaceholderKey(walletConfig.value.admin1),
+    admin2: isPlaceholderKey(walletConfig.value.admin2),
+  }
+
+  console.table(checks)
+
+  const hasError = Object.values(checks).some(Boolean)
+
+  if (hasError) {
+    console.error("❌ Solana config invalide", checks)
+    console.groupEnd()
     alert("Configuration Solana manquante. Contacte un admin.")
     return
   }
+
+  console.log("✅ Solana config OK, ouverture du modal")
+  console.groupEnd()
+
   showCreateContract.value = true
 }
+
 
 function closeCreateContract() {
   showCreateContract.value = false
@@ -266,6 +297,17 @@ function openContractPreview(contract) {
 function closeContractPreview() {
   previewContract.value = null
   showContractViewer.value = false
+}
+
+async function handleContractUpdated() {
+  await loadMyContracts()
+  if (!previewContract.value) return
+  const currentId = previewContract.value.uuid || previewContract.value.id
+  if (!currentId) return
+  const updated = activeContracts.value.find(
+    (contract) => contract.uuid === currentId || contract.id === currentId
+  )
+  if (updated) previewContract.value = updated
 }
 
 // ==========================
@@ -445,6 +487,7 @@ onMounted(() => {
         :usdc-mint="usdcMint"
         :rpc-url="walletConfig.rpcUrl"
         :network="walletConfig.network"
+        :fee-wallet="walletConfig.feeWallet"
         :admin1="walletConfig.admin1"
         :admin2="walletConfig.admin2"
         @created="createContractSuccess"
@@ -462,6 +505,13 @@ onMounted(() => {
     >
       <ContractPreviewModal
         :contract="previewContract"
+        :program-id="programId"
+        :usdc-mint="usdcMint"
+        :rpc-url="walletConfig.rpcUrl"
+        :fee-wallet="walletConfig.feeWallet"
+        :admin1="walletConfig.admin1"
+        :admin2="walletConfig.admin2"
+        @updated="handleContractUpdated"
         @close="closeContractPreview"
       />
     </div>

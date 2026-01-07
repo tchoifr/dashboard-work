@@ -38,6 +38,7 @@ export const useConversationStore = defineStore("conversations", {
       state.friends.map((f) => ({
         label: f.username,
         value: f.uuid,
+        walletAddress: f.walletAddress || f.wallet_address || null,
       })),
 
     activeConversation(state) {

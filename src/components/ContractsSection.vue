@@ -9,16 +9,33 @@ const emit = defineEmits(['create-contract', 'view-contract'])
 
 const openContract = () => emit('create-contract')
 
+const contractTitle = (contract) =>
+  contract.title || contract.name || 'Contract'
+const contractClient = (contract) =>
+  contract.client || contract.employerLabel || contract.employerName || ''
+const contractAmount = (contract) => {
+  const amount = contract.amountUsdc ?? contract.amount
+  if (amount == null || Number.isNaN(Number(amount))) return ''
+  return `${Number(amount).toFixed(2)} USDC`
+}
+const contractPeriod = (contract) => {
+  if (contract.period) return contract.period
+  const start = contract.startAt || contract.start_at || contract.timeline?.start
+  const end = contract.endAt || contract.end_at || contract.timeline?.end
+  if (!start && !end) return ''
+  return `${start || "?"} -> ${end || "?"}`
+}
+
 const downloadContract = (contract) => {
   const doc = new jsPDF()
   doc.setFontSize(16)
-  doc.text(contract.name || 'Contract', 20, 20)
+  doc.text(contractTitle(contract), 20, 20)
   doc.setFontSize(12)
-  doc.text(`Client: ${contract.client || ''}`, 20, 35)
-  doc.text(`Amount: ${contract.amount || ''}`, 20, 45)
-  doc.text(`Period: ${contract.period || ''}`, 20, 55)
+  doc.text(`Client: ${contractClient(contract)}`, 20, 35)
+  doc.text(`Amount: ${contractAmount(contract)}`, 20, 45)
+  doc.text(`Period: ${contractPeriod(contract)}`, 20, 55)
   doc.text(`Status: ${contract.status || ''}`, 20, 65)
-  doc.save(`${contract.name || 'contract'}.pdf`)
+  doc.save(`${contractTitle(contract)}.pdf`)
 }
 
 const viewContract = (contract) => emit('view-contract', contract)
@@ -35,14 +52,18 @@ const viewContract = (contract) => emit('view-contract', contract)
     </div>
 
     <div class="grid">
-      <article v-for="contract in contracts" :key="contract.name" class="card">
+      <article
+        v-for="contract in contracts"
+        :key="contract.uuid || contract.id || contract.name"
+        class="card"
+      >
         <div class="card-top">
           <div class="icon">
             <span class="doc">📄</span>
           </div>
           <div class="info">
-            <h3>{{ contract.name }}</h3>
-            <p class="muted">{{ contract.client }}</p>
+            <h3>{{ contractTitle(contract) }}</h3>
+            <p class="muted">{{ contractClient(contract) }}</p>
           </div>
           <span class="badge" :class="contract.status">{{ contract.status }}</span>
         </div>
@@ -50,11 +71,11 @@ const viewContract = (contract) => emit('view-contract', contract)
         <div class="meta">
           <div>
             <p class="label">Amount</p>
-            <p class="value">{{ contract.amount }}</p>
+            <p class="value">{{ contractAmount(contract) }}</p>
           </div>
           <div>
             <p class="label">Period</p>
-            <p class="value">{{ contract.period }}</p>
+            <p class="value">{{ contractPeriod(contract) }}</p>
           </div>
         </div>
 

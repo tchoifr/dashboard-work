@@ -2,17 +2,19 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue"
 import flatpickr from "flatpickr"
 import "flatpickr/dist/themes/dark.css"
-import { PublicKey } from "@solana/web3.js"
+import { PublicKey, SystemProgram } from "@solana/web3.js"
 import api from "../services/api"
 import idl from "../idl/escrow_program.json"
+import { useAuthStore } from "../store/auth"
 
 import {
   connectPhantom,
-  findEscrowPdas,
   getAnchorProvider,
   getConnection,
   getPhantomProvider,
   getUsdcBalance,
+  getOrCreateAta,
+  findEscrowPdas,
   initializeEscrow,
   loadProgram,
 } from "../services/solana"
@@ -34,11 +36,13 @@ const props = defineProps({
   usdcMint: String,
   network: String,           
   rpcUrl: String,
+  feeWallet: String,
   admin1: String,
   admin2: String,
 })
 
 const emit = defineEmits(["close", "created"])
+const auth = useAuthStore()
 
 // --------------------------------------------------
 // FORMULAIRE
@@ -49,6 +53,7 @@ const form = reactive({
   checkpoints: "",
   timeline: { start: "", end: "" },
   employer: null,
+  amountUsdc: "",
 })
 
 // --------------------------------------------------
@@ -64,7 +69,6 @@ const txStatus = ref("")
 const usdcBalance = ref(0)
 const initializerAta = ref(null)
 const walletAddress = ref("")
-const finalAmountFromTx = ref(0)
 
 const usdcMintMissing = computed(() => !props.usdcMint)
 const programIdMissing = computed(() => !props.programId)
@@ -74,6 +78,7 @@ const phantomReady = computed(() => !!walletAddress.value)
 const todayIso = computed(() => new Date().toISOString().split("T")[0])
 
 const canSubmit = computed(() => {
+  const amount = Number(form.amountUsdc)
   return (
     form.title &&
     form.description &&
@@ -81,6 +86,8 @@ const canSubmit = computed(() => {
     form.employer &&
     form.timeline.start &&
     form.timeline.end &&
+    Number.isFinite(amount) &&
+    amount > 0 &&
     !loading.value &&
     !usdcMintMissing.value &&
     !programIdMissing.value
@@ -100,7 +107,7 @@ const normalizeIso = (date) => {
 
 function syncEndMinDate() {
   if (!endPicker) return
-  endPicker.set("minDate", form.timeline.start)
+  endPicker.set("minDate", form.timeline.start || null)
   if (form.timeline.end && form.timeline.end < form.timeline.start) {
     form.timeline.end = form.timeline.start
     endPicker.setDate(form.timeline.end)
@@ -113,7 +120,6 @@ async function ensurePhantom() {
     txStatus.value = "Installe Phantom."
     throw new Error("Phantom manquant")
   }
-  console.log("freelancerWallet =", props.freelancerWallet)
   const { publicKey } = await connectPhantom()
   walletAddress.value = publicKey?.toBase58() || ""
   return { phantom, publicKey }
@@ -129,6 +135,23 @@ async function loadUsdcBalance() {
     txStatus.value = "Connexion Phantom..."
     const { publicKey } = await ensurePhantom()
     if (!publicKey) return
+
+    console.log("programId prop:", props.programId)
+    console.log("usdcMint prop:", props.usdcMint)
+
+    try {
+      new PublicKey(props.programId)
+    } catch (error) {
+      console.error("ProgramId invalide:", props.programId, error)
+      return alert("ProgramId invalide. Contacte un admin.")
+    }
+
+    try {
+      new PublicKey(props.usdcMint)
+    } catch (error) {
+      console.error("USDC mint invalide:", props.usdcMint, error)
+      return alert("USDC mint invalide.")
+    }
 
     const connection = getConnection(props.rpcUrl)
     txStatus.value = "Lecture solde USDC..."
@@ -163,75 +186,44 @@ async function submitForm() {
     const { phantom, publicKey } = await ensurePhantom()
     if (!publicKey) return alert("Wallet requis.")
 
-    if (
-      form.employer.walletAddress &&
-      form.employer.walletAddress !== publicKey.toBase58()
-    ) {
-      return alert("Le wallet connecté ≠ employeur sélectionné.")
+    if (!props.programId || props.programId === SystemProgram.programId.toBase58()) {
+      return alert("ProgramId invalide. Contacte un admin.")
+    }
+
+    const employerWallet = publicKey.toBase58()
+    const employerUuid = auth.user?.uuid
+    if (!employerUuid) return alert("Utilisateur employeur introuvable.")
+
+    const freelancerWallet =
+      form.employer?.walletAddress || form.employer?.wallet_address
+    if (!freelancerWallet) {
+      return alert("Wallet du freelance manquant.")
     }
 
     const connection = getConnection(props.rpcUrl)
     const provider = getAnchorProvider(connection, phantom)
-    console.log("programId =", props.programId)
-console.log("usdcMint =", props.usdcMint)
-console.log("admin1 =", props.admin1)
-console.log("admin2 =", props.admin2)
-
     const program = loadProgram(idl, props.programId, provider)
 
-    const workerPk = new PublicKey(props.freelancerWallet)
+    const workerPk = new PublicKey(freelancerWallet)
     const admin1Pk = admin1Key.value
     const admin2Pk = admin2Key.value
-
+    const amountUsdc = Number(form.amountUsdc)
 
     const { escrowStatePda, vaultPda } = await findEscrowPdas(
       program.programId,
       publicKey,
       workerPk
     )
-
-    const ataAddress = initializerAta.value
-    if (!ataAddress) return alert("ATA USDC introuvable.")
-
-    // --------------------------------------------------
-    // 1️⃣ PHANTOM CHOISIT LE MONTANT → initializeEscrow SANS amount
-    // --------------------------------------------------
-    txStatus.value = "Ouvre Phantom pour entrer le montant…"
-
-    const signature = await initializeEscrow({
-      program,
-      amountUsdc: null,      // 🔥 montant choisi dans Phantom
-      initializer: publicKey,
-      worker: workerPk,
-      admin1: admin1Pk,
-      admin2: admin2Pk,
-      usdcMint: new PublicKey(props.usdcMint),
-      initializerUsdcAta: ataAddress,
-      vaultPda,
-      escrowStatePda,
-      feeBps: 500,
+    const { ata: initializerUsdcAta } = await getOrCreateAta({
+      connection,
+      provider,
+      payer: publicKey,
+      owner: publicKey,
+      mint: new PublicKey(props.usdcMint),
     })
 
-    console.log("InitializeEscrow TX:", signature)
-
     // --------------------------------------------------
-    // 2️⃣ Détection automatique du montant transféré
-    // --------------------------------------------------
-    const parsed = await connection.getParsedTransaction(signature, {
-      maxSupportedTransactionVersion: 0,
-    })
-
-    const transferIx = parsed?.transaction?.message?.instructions?.find(
-      (ix) => ix.parsed?.type === "transferChecked"
-    )
-
-    if (!transferIx) throw new Error("Impossible de lire le montant transféré.")
-
-    finalAmountFromTx.value = transferIx.parsed.info.tokenAmount.uiAmount
-    console.log("Montant détecté:", finalAmountFromTx.value)
-
-    // --------------------------------------------------
-    // 3️⃣ Envoi backend
+    // 1️⃣ Initialize on-chain
     // --------------------------------------------------
     const checkpointsArray = form.checkpoints
       ? form.checkpoints
@@ -240,7 +232,26 @@ console.log("admin2 =", props.admin2)
           .filter(Boolean)
       : []
 
-    const res = await api.post("/api/contracts", {
+    txStatus.value = "Signature initialize_escrow..."
+    const signature = await initializeEscrow({
+      program,
+      amountUsdc,
+      initializer: publicKey,
+      worker: workerPk,
+      admin1: admin1Pk,
+      admin2: admin2Pk,
+      usdcMint: new PublicKey(props.usdcMint),
+      escrowStatePda,
+      vaultPda,
+      initializerUsdcAta,
+      feeBps: 500,
+    })
+
+    // --------------------------------------------------
+    // 2️⃣ Envoi backend
+    // --------------------------------------------------
+    txStatus.value = "Creation du contrat..."
+    const res = await api.post("/contracts", {
       title: form.title,
       description: form.description,
       checkpoints: checkpointsArray,
@@ -248,22 +259,24 @@ console.log("admin2 =", props.admin2)
         start: form.timeline.start,
         end: form.timeline.end,
       },
-      amountUsdc: finalAmountFromTx.value, // 🔥 montant blockchain
-      employerUuid: form.employer.uuid,
-      employerWallet: publicKey.toBase58(),
-      freelancerWallet: props.freelancerWallet,
-
-      txSig: signature,  // 🔥 le backend attend txSig
+      amountUsdc,
+      employerUuid,
+      employerWallet,
+      freelancerWallet,
+      txSig: signature,
       escrowStatePda: escrowStatePda.toBase58(),
       vaultPda: vaultPda.toBase58(),
+      usdcMint: props.usdcMint,
+      programId: props.programId,
+      feeWallet: props.feeWallet,
       chain: props.network || "solana-devnet",
     })
 
-    txStatus.value = "Contrat créé."
+    txStatus.value = "Contrat cree."
     emit("created", res.data)
   } catch (err) {
     console.error("Create contract error:", err)
-    alert(err.message || "Erreur création contrat.")
+    alert(err.message || "Erreur creation contrat.")
   } finally {
     loading.value = false
   }
@@ -278,7 +291,9 @@ function close() {
 // --------------------------------------------------
 onMounted(() => {
   startPicker = flatpickr(startInput.value, {
-    dateFormat: "M d, Y",
+    dateFormat: "Y-m-d",
+    altInput: true,
+    altFormat: "M d, Y",
     minDate: "today",
     onChange: (d) => {
       form.timeline.start = normalizeIso(d[0])
@@ -287,7 +302,9 @@ onMounted(() => {
   })
 
   endPicker = flatpickr(endInput.value, {
-    dateFormat: "M d, Y",
+    dateFormat: "Y-m-d",
+    altInput: true,
+    altFormat: "M d, Y",
     onChange: (d) => {
       form.timeline.end = normalizeIso(d[0])
     },
@@ -324,7 +341,7 @@ onBeforeUnmount(() => {
       <label class="field ">
         <span>Assign to</span>
       <div class="select-shell">
-  <select v-model="form.employer">
+  <select v-model="form.employer" @change="console.log('Selected employer:', form.employer)">
     <option disabled value="">Select a client</option>
     <option
       v-for="client in employers"
@@ -338,10 +355,15 @@ onBeforeUnmount(() => {
 
       </label>
 
-      <!-- 🔥 REMPLACEMENT : montant choisi dans Phantom -->
       <label class="field full">
         <span>Amount (USDC)</span>
-        <p class="muted">The amount will be entered directly inside Phantom during transaction.</p>
+        <input
+          v-model="form.amountUsdc"
+          type="number"
+          min="0"
+          step="0.01"
+          placeholder="e.g., 2500"
+        />
         <p class="muted">USDC Balance: {{ usdcBalance.toFixed(2) }} USDC</p>
       </label>
 
