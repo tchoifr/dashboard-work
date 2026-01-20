@@ -2,7 +2,7 @@ use std::str::FromStr;
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
 
-declare_id!("Cyrp2k7WwbkKMkFj46spuWofZANqYxTVTbogeY8XPovR");
+declare_id!("BP8zvH7gYunbsaSaJbwWtXgbfSuJew8vbCfW2jFNaQsV");
 
 /// Wallet fixe qui reçoit les fees (USDC ATA du fee wallet est fourni côté front)
 const FEE_WALLET_STR: &str = "2QTYHp16qqvxW4HYvC9QuQoY9Kkr1oMiKwGfhCUvPktP";

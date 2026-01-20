@@ -66,20 +66,12 @@ export const getAnchorProvider = (connection, wallet) => {
 /**
  * Charge le programme Anchor
  */
-export const loadProgram = (idl, programId, provider) => {
+export const loadProgram = (idl, provider) => {
   if (!idl) throw new Error("IDL Anchor manquante.")
-  if (!programId) throw new Error("ProgramId Solana requis.")
-  let programKey = programId
-  try {
-    if (!(programId instanceof PublicKey)) {
-      programKey = new PublicKey(String(programId))
-    }
-  } catch (error) {
-    console.error("ProgramId invalide:", programId, error)
-    throw new Error("ProgramId invalide.")
-  }
-  return new Program(idl, programKey, provider)
+  if (!provider) throw new Error("Provider Anchor requis.")
+  return new Program(idl, provider)
 }
+
 
 /**
  * PDA de l'escrow + vault dérivés par le programme
@@ -143,7 +135,15 @@ export const getOrCreateAta = async ({
     ASSOCIATED_TOKEN_PROGRAM_ID,
   )
 
+  // 👇 AJOUTE CES LOGS ICI
+  console.log("🔍 [getOrCreateAta]")
+  console.log("payer =", payer?.toBase58?.() ?? payer)
+  console.log("owner =", owner?.toBase58?.() ?? owner)
+  console.log("mint  =", mint?.toBase58?.() ?? mint)
+  console.log("ata   =", ata.toBase58())
+
   const info = await connection.getAccountInfo(ata).catch(() => null)
+  console.log("🔎 program account info =", info)
   if (info) return { ata, created: false }
 
   const ix = createAssociatedTokenAccountInstruction(
@@ -158,6 +158,7 @@ export const getOrCreateAta = async ({
   const signature = await provider.sendAndConfirm(tx)
   return { ata, created: true, signature }
 }
+
 
 /**
  * Appel Anchor: initializeEscrow (création du state + paramètres)
@@ -182,8 +183,6 @@ export const initializeEscrow = async ({
     .accounts({
       initializer,
       worker,
-      admin1,
-      admin2,
       escrowState: escrowStatePda,
       vault: vaultPda,
       initializerUsdcAta,

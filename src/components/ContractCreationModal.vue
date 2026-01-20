@@ -18,6 +18,28 @@ import {
   initializeEscrow,
   loadProgram,
 } from "../services/solana"
+
+// --------------------------------------------------
+// PROPS / EMITS / STORE
+// --------------------------------------------------
+const props = defineProps({
+  employers: Array,
+  freelancerWallet: String,
+  programId: String,
+  usdcMint: String,
+  network: String,
+  rpcUrl: String,
+  feeWallet: String,
+  admin1: String,
+  admin2: String,
+})
+
+const emit = defineEmits(["close", "created"])
+const auth = useAuthStore()
+
+// --------------------------------------------------
+// ADMIN KEYS
+// --------------------------------------------------
 const admin1Key = computed(() =>
   props.admin1 && props.admin1.length > 0
     ? new PublicKey(props.admin1)
@@ -29,20 +51,6 @@ const admin2Key = computed(() =>
     ? new PublicKey(props.admin2)
     : SystemProgram.programId
 )
-const props = defineProps({
-  employers: Array,          
-  freelancerWallet: String,  
-  programId: String,
-  usdcMint: String,
-  network: String,           
-  rpcUrl: String,
-  feeWallet: String,
-  admin1: String,
-  admin2: String,
-})
-
-const emit = defineEmits(["close", "created"])
-const auth = useAuthStore()
 
 // --------------------------------------------------
 // FORMULAIRE
@@ -64,6 +72,9 @@ const endInput = ref(null)
 let startPicker = null
 let endPicker = null
 
+// --------------------------------------------------
+// STATE UI
+// --------------------------------------------------
 const loading = ref(false)
 const txStatus = ref("")
 const usdcBalance = ref(0)
@@ -72,9 +83,7 @@ const walletAddress = ref("")
 
 const usdcMintMissing = computed(() => !props.usdcMint)
 const programIdMissing = computed(() => !props.programId)
-
 const phantomReady = computed(() => !!walletAddress.value)
-
 const todayIso = computed(() => new Date().toISOString().split("T")[0])
 
 const canSubmit = computed(() => {
@@ -126,7 +135,7 @@ async function ensurePhantom() {
 }
 
 // --------------------------------------------------
-// SOLDE USDC DE L'EMPLOYEUR
+// SOLDE USDC
 // --------------------------------------------------
 async function loadUsdcBalance() {
   try {
@@ -135,9 +144,6 @@ async function loadUsdcBalance() {
     txStatus.value = "Connexion Phantom..."
     const { publicKey } = await ensurePhantom()
     if (!publicKey) return
-
-    console.log("programId prop:", props.programId)
-    console.log("usdcMint prop:", props.usdcMint)
 
     try {
       new PublicKey(props.programId)
@@ -164,7 +170,6 @@ async function loadUsdcBalance() {
 
     initializerAta.value = balanceInfo.ata
     usdcBalance.value = balanceInfo.amount
-
     txStatus.value = ""
   } catch (e) {
     console.error("Balance Error:", e)
@@ -174,7 +179,7 @@ async function loadUsdcBalance() {
 }
 
 // --------------------------------------------------
-// SOUMISSION DU FORMULAIRE + TX SOLANA
+// SUBMIT FORM + TX SOLANA
 // --------------------------------------------------
 async function submitForm() {
   if (!canSubmit.value) return
@@ -186,7 +191,10 @@ async function submitForm() {
     const { phantom, publicKey } = await ensurePhantom()
     if (!publicKey) return alert("Wallet requis.")
 
-    if (!props.programId || props.programId === SystemProgram.programId.toBase58()) {
+    if (
+      !props.programId ||
+      props.programId === SystemProgram.programId.toBase58()
+    ) {
       return alert("ProgramId invalide. Contacte un admin.")
     }
 
@@ -196,35 +204,41 @@ async function submitForm() {
 
     const freelancerWallet =
       form.employer?.walletAddress || form.employer?.wallet_address
-    if (!freelancerWallet) {
-      return alert("Wallet du freelance manquant.")
-    }
+    if (!freelancerWallet) return alert("Wallet du freelance manquant.")
 
+    // Connection / Provider / Program
     const connection = getConnection(props.rpcUrl)
     const provider = getAnchorProvider(connection, phantom)
-    const program = loadProgram(idl, props.programId, provider)
+
+    // DEBUG (tu peux enlever après)
+    console.log("👛 provider.wallet =", provider.wallet.publicKey.toBase58())
+    console.log("👛 ensurePhantom publicKey =", publicKey.toBase58())
+
+    // Anchor 0.30+: Program(idl, provider)
+    const program = loadProgram(idl, provider)
 
     const workerPk = new PublicKey(freelancerWallet)
     const admin1Pk = admin1Key.value
     const admin2Pk = admin2Key.value
     const amountUsdc = Number(form.amountUsdc)
 
+    // PDAs
     const { escrowStatePda, vaultPda } = await findEscrowPdas(
-      program.programId,
+      props.programId,
       publicKey,
       workerPk
     )
+
+    // ATA USDC de l'initializer (payer = wallet Phantom connecté)
     const { ata: initializerUsdcAta } = await getOrCreateAta({
       connection,
       provider,
-      payer: publicKey,
-      owner: publicKey,
+      payer: provider.wallet.publicKey, // ✅ PAYEUR
+      owner: publicKey,                 // ✅ OWNER (initializer)
       mint: new PublicKey(props.usdcMint),
     })
 
-    // --------------------------------------------------
-    // 1️⃣ Initialize on-chain
-    // --------------------------------------------------
+    // Checkpoints
     const checkpointsArray = form.checkpoints
       ? form.checkpoints
           .split("\n")
@@ -232,6 +246,7 @@ async function submitForm() {
           .filter(Boolean)
       : []
 
+    // 1) Initialize on-chain
     txStatus.value = "Signature initialize_escrow..."
     const signature = await initializeEscrow({
       program,
@@ -247,9 +262,7 @@ async function submitForm() {
       feeBps: 500,
     })
 
-    // --------------------------------------------------
-    // 2️⃣ Envoi backend
-    // --------------------------------------------------
+    // 2) Backend
     txStatus.value = "Creation du contrat..."
     const res = await api.post("/contracts", {
       title: form.title,
@@ -340,83 +353,50 @@ onBeforeUnmount(() => {
 
       <label class="field ">
         <span>Assign to</span>
-      <div class="select-shell">
-  <select v-model="form.employer" @change="console.log('Selected employer:', form.employer)">
-    <option disabled value="">Select a client</option>
-    <option
-      v-for="client in employers"
-      :key="client.uuid"
-      :value="client"
-    >
-      {{ client.label }}
-    </option>
-  </select>
-</div>
+        <div class="select-shell">
+          <select v-model="form.employer" @change="console.log('Selected employer:', form.employer)">
+            <option disabled value="">Select a client</option>
+            <option v-for="client in employers" :key="client.uuid" :value="client">
+              {{ client.label }}
+            </option>
+          </select>
+        </div>
 
       </label>
 
       <label class="field full">
         <span>Amount (USDC)</span>
-        <input
-          v-model="form.amountUsdc"
-          type="number"
-          min="0"
-          step="0.01"
-          placeholder="e.g., 2500"
-        />
+        <input v-model="form.amountUsdc" type="number" min="0" step="0.01" placeholder="e.g., 2500" />
         <p class="muted">USDC Balance: {{ usdcBalance.toFixed(2) }} USDC</p>
       </label>
 
       <div class="field date-grid">
         <label>
           <span>Start date</span>
-          <input
-            ref="startInput"
-            type="text"
-            placeholder="Select a date"
-            readonly
-          />
+          <input ref="startInput" type="text" placeholder="Select a date" readonly />
         </label>
 
         <label>
           <span>End date</span>
-          <input
-            ref="endInput"
-            type="text"
-            placeholder="Select a date"
-            readonly
-          />
+          <input ref="endInput" type="text" placeholder="Select a date" readonly />
         </label>
       </div>
 
       <label class="field full">
         <span>Description</span>
-        <textarea
-          v-model="form.description"
-          rows="3"
-          placeholder="Contract scope, deliverables, etc."
-        />
+        <textarea v-model="form.description" rows="3" placeholder="Contract scope, deliverables, etc." />
       </label>
 
       <label class="field full">
         <span>Validation checkpoints</span>
-        <textarea
-          v-model="form.checkpoints"
-          rows="3"
-          placeholder="List milestones the client must approve."
-        />
+        <textarea v-model="form.checkpoints" rows="3" placeholder="List milestones the client must approve." />
       </label>
     </div>
 
     <footer class="actions">
       <div class="status" v-if="txStatus">{{ txStatus }}</div>
       <button class="ghost" type="button" @click="close">Cancel</button>
-      <button
-        class="primary"
-        type="button"
-        :disabled="!canSubmit"
-        @click="submitForm"
-      >
+      <button class="primary" type="button" :disabled="!canSubmit" @click="submitForm">
         {{ loading ? "Creating..." : "Create contract" }}
       </button>
     </footer>
@@ -425,7 +405,7 @@ onBeforeUnmount(() => {
 
 
 <style scoped>
-  /* ================================================
+/* ================================================
    🔥 FIX SELECT CUSTOM (ne change rien d’autre)
    ================================================ */
 select {
@@ -612,5 +592,4 @@ textarea {
   font-size: 12px;
   color: #9fb0d2;
 }
-
 </style>

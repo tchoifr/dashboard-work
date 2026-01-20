@@ -5,7 +5,7 @@
  * IDL can be found at `target/idl/escrow_program.json`.
  */
 export type EscrowProgram = {
-  "address": "Cyrp2k7WwbkKMkFj46spuWofZANqYxTVTbogeY8XPovR",
+  "address": "BP8zvH7gYunbsaSaJbwWtXgbfSuJew8vbCfW2jFNaQsV",
   "metadata": {
     "name": "escrowProgram",
     "version": "0.1.0",
