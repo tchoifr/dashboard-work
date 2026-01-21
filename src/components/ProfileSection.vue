@@ -1,19 +1,22 @@
 <script setup>
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from "vue"
 
 const props = defineProps({
-  profile: Object,
+  profile: { type: Object, default: () => ({}) },
+  loading: { type: Boolean, default: false },
+  saving: { type: Boolean, default: false },
+  error: { type: String, default: "" },
 })
 
-const emit = defineEmits(['save-profile'])
+const emit = defineEmits(["save-profile"])
 
 const baseProfile = {
-  name: '',
-  title: '',
-  location: '',
-  rate: '',
-  availability: '',
-  bio: '',
+  name: "",
+  title: "",
+  location: "",
+  rate: "",
+  availability: "",
+  bio: "",
   skills: [],
   highlights: [],
   portfolio: [],
@@ -32,28 +35,25 @@ const editedProfile = reactive(createDraft(props.profile || baseProfile))
 const currentProfile = computed(() => ({ ...baseProfile, ...(props.profile || {}) }))
 const previewProfile = computed(() => (editMode.value ? editedProfile : currentProfile.value))
 
-const skillInput = ref('')
-const highlightInput = ref('')
-const newPortfolio = reactive({
-  label: '',
-  tech: '',
-  link: '',
-})
+const skillInput = ref("")
+const highlightInput = ref("")
+const newPortfolio = reactive({ label: "", tech: "", link: "" })
 
 const resetForm = () => {
   Object.assign(editedProfile, createDraft(props.profile))
-  skillInput.value = ''
-  highlightInput.value = ''
-  Object.assign(newPortfolio, { label: '', tech: '', link: '' })
+  skillInput.value = ""
+  highlightInput.value = ""
+  Object.assign(newPortfolio, { label: "", tech: "", link: "" })
 }
 
 watch(
   () => props.profile,
   () => resetForm(),
-  { deep: true }
+  { deep: true },
 )
 
 const startEditing = () => {
+  if (props.loading || props.saving) return
   resetForm()
   editMode.value = true
 }
@@ -67,43 +67,34 @@ const addSkill = () => {
   const value = skillInput.value.trim()
   if (!value) return
   editedProfile.skills.push(value)
-  skillInput.value = ''
+  skillInput.value = ""
 }
 
-const removeSkill = (index) => {
-  editedProfile.skills.splice(index, 1)
-}
+const removeSkill = (index) => editedProfile.skills.splice(index, 1)
 
 const addHighlight = () => {
   const value = highlightInput.value.trim()
   if (!value) return
   editedProfile.highlights.push(value)
-  highlightInput.value = ''
+  highlightInput.value = ""
 }
 
-const removeHighlight = (index) => {
-  editedProfile.highlights.splice(index, 1)
-}
+const removeHighlight = (index) => editedProfile.highlights.splice(index, 1)
 
 const addPortfolioItem = () => {
   const label = newPortfolio.label.trim()
   const tech = newPortfolio.tech.trim()
   const link = newPortfolio.link.trim()
   if (!label || !tech) return
-  editedProfile.portfolio.push({
-    label,
-    tech,
-    link: link || '#',
-  })
-  Object.assign(newPortfolio, { label: '', tech: '', link: '' })
+  editedProfile.portfolio.push({ label, tech, link: link || "#" })
+  Object.assign(newPortfolio, { label: "", tech: "", link: "" })
 }
 
-const removePortfolioItem = (index) => {
-  editedProfile.portfolio.splice(index, 1)
-}
+const removePortfolioItem = (index) => editedProfile.portfolio.splice(index, 1)
 
 const saveProfile = () => {
-  emit('save-profile', createDraft(editedProfile))
+  if (props.saving || props.loading) return
+  emit("save-profile", createDraft(editedProfile))
   editMode.value = false
 }
 </script>
@@ -112,16 +103,34 @@ const saveProfile = () => {
   <section class="profile-section">
     <div class="header-card">
       <div>
-        <p class="eyebrow">Shareable Profile</p>
-        <h2>{{ previewProfile.name }}</h2>
-        <p class="title">{{ previewProfile.title }}</p>
-        <p class="muted">{{ previewProfile.location }}</p>
+        <p class="eyebrow">Private Profile</p>
+
+        <div v-if="loading" class="muted">Chargement du profil…</div>
+        <div v-else>
+          <h2>{{ previewProfile.name }}</h2>
+          <p class="title">{{ previewProfile.title }}</p>
+          <p class="muted">{{ previewProfile.location }}</p>
+        </div>
+
+        <p v-if="error" class="error">{{ error }}</p>
       </div>
+
       <div class="actions">
-        <button v-if="!editMode" class="primary-btn" @click="startEditing">Edit profile</button>
+        <button
+          v-if="!editMode"
+          class="primary-btn"
+          :disabled="loading || saving"
+          @click="startEditing"
+        >
+          Edit profile
+        </button>
+
         <div v-else class="action-row">
-          <button class="ghost-btn" @click="cancelEdit">Cancel</button>
-          <button class="primary-btn" @click="saveProfile">Save changes</button>
+          <button class="ghost-btn" :disabled="saving" @click="cancelEdit">Cancel</button>
+          <button class="primary-btn" :disabled="saving" @click="saveProfile">
+            <span v-if="saving">Saving…</span>
+            <span v-else>Save changes</span>
+          </button>
         </div>
       </div>
     </div>
@@ -132,35 +141,41 @@ const saveProfile = () => {
           <h3>Profile details</h3>
           <p class="helper">Update your headline, rates and bio in one place.</p>
         </div>
+
         <div class="form-grid">
           <label class="field">
             <span>Full name</span>
-            <input v-model="editedProfile.name" :disabled="!editMode" placeholder="Enter your name" />
+            <input v-model="editedProfile.name" :disabled="!editMode || saving || loading" placeholder="Enter your name" />
           </label>
+
           <label class="field">
             <span>Title</span>
-            <input v-model="editedProfile.title" :disabled="!editMode" placeholder="What do you do?" />
+            <input v-model="editedProfile.title" :disabled="!editMode || saving || loading" placeholder="What do you do?" />
           </label>
+
           <label class="field">
             <span>Location</span>
-            <input v-model="editedProfile.location" :disabled="!editMode" placeholder="Remote, city or timezone" />
+            <input v-model="editedProfile.location" :disabled="!editMode || saving || loading" placeholder="Remote, city or timezone" />
           </label>
+
           <label class="field">
             <span>Rate</span>
-            <input v-model="editedProfile.rate" :disabled="!editMode" placeholder="120 USDC/hr" />
+            <input v-model="editedProfile.rate" :disabled="!editMode || saving || loading" placeholder="120 USDC/hr" />
           </label>
+
           <label class="field">
             <span>Availability</span>
-            <input v-model="editedProfile.availability" :disabled="!editMode" placeholder="Hours per week" />
+            <input v-model="editedProfile.availability" :disabled="!editMode || saving || loading" placeholder="Hours per week" />
           </label>
+
           <label class="field span-2">
             <span>Bio</span>
             <textarea
               v-model="editedProfile.bio"
-              :disabled="!editMode"
+              :disabled="!editMode || saving || loading"
               rows="3"
               placeholder="Short summary of what you ship"
-            ></textarea>
+            />
           </label>
         </div>
 
@@ -169,14 +184,21 @@ const saveProfile = () => {
             <h4>Skills</h4>
             <p class="helper">Add the stack you want to show.</p>
           </div>
+
           <div class="chip-input" v-if="editMode">
-            <input v-model="skillInput" placeholder="Add a skill" @keyup.enter.prevent="addSkill" />
-            <button class="pill-btn" @click="addSkill">Add</button>
+            <input
+              v-model="skillInput"
+              :disabled="saving || loading"
+              placeholder="Add a skill"
+              @keyup.enter.prevent="addSkill"
+            />
+            <button class="pill-btn" :disabled="saving || loading" @click="addSkill">Add</button>
           </div>
+
           <div class="tags editable">
             <span v-for="(skill, index) in editedProfile.skills" :key="skill + index" class="tag">
               {{ skill }}
-              <button v-if="editMode" class="remove-btn" @click="removeSkill(index)">x</button>
+              <button v-if="editMode" class="remove-btn" :disabled="saving || loading" @click="removeSkill(index)">x</button>
             </span>
           </div>
         </div>
@@ -186,14 +208,21 @@ const saveProfile = () => {
             <h4>Highlights</h4>
             <p class="helper">Show wins clients care about.</p>
           </div>
+
           <div class="chip-input" v-if="editMode">
-            <input v-model="highlightInput" placeholder="Add a highlight" @keyup.enter.prevent="addHighlight" />
-            <button class="pill-btn" @click="addHighlight">Add</button>
+            <input
+              v-model="highlightInput"
+              :disabled="saving || loading"
+              placeholder="Add a highlight"
+              @keyup.enter.prevent="addHighlight"
+            />
+            <button class="pill-btn" :disabled="saving || loading" @click="addHighlight">Add</button>
           </div>
+
           <ul class="highlights">
             <li v-for="(item, index) in editedProfile.highlights" :key="item + index">
               {{ item }}
-              <button v-if="editMode" class="remove-btn" @click="removeHighlight(index)">x</button>
+              <button v-if="editMode" class="remove-btn" :disabled="saving || loading" @click="removeHighlight(index)">x</button>
             </li>
           </ul>
         </div>
@@ -203,18 +232,22 @@ const saveProfile = () => {
             <h4>Portfolio</h4>
             <p class="helper">Link to work samples, reports or repos.</p>
           </div>
+
           <div class="portfolio-form" v-if="editMode">
-            <input v-model="newPortfolio.label" placeholder="Title" />
-            <input v-model="newPortfolio.tech" placeholder="Tech stack" />
-            <input v-model="newPortfolio.link" placeholder="Link (optional)" />
-            <button class="pill-btn" @click="addPortfolioItem">Add project</button>
+            <input v-model="newPortfolio.label" :disabled="saving || loading" placeholder="Title" />
+            <input v-model="newPortfolio.tech" :disabled="saving || loading" placeholder="Tech stack" />
+            <input v-model="newPortfolio.link" :disabled="saving || loading" placeholder="Link (optional)" />
+            <button class="pill-btn" :disabled="saving || loading" @click="addPortfolioItem">Add project</button>
           </div>
+
           <div class="portfolio editable">
             <div v-for="(item, index) in editedProfile.portfolio" :key="item.label + index" class="portfolio-item">
               <p class="label">{{ item.label }}</p>
               <p class="muted">{{ item.tech }}</p>
-              <a class="link" :href="item.link || '#'">View</a>
-              <button v-if="editMode" class="remove-btn" @click="removePortfolioItem(index)">Remove</button>
+              <a class="link" :href="item.link || '#'" target="_blank" rel="noreferrer">View</a>
+              <button v-if="editMode" class="remove-btn" :disabled="saving || loading" @click="removePortfolioItem(index)">
+                Remove
+              </button>
             </div>
           </div>
         </div>
@@ -225,10 +258,12 @@ const saveProfile = () => {
           <h3>Profile preview</h3>
           <p class="helper">This is what clients see when you share your profile.</p>
         </div>
+
         <div class="chips">
           <span class="chip">Rate: {{ previewProfile.rate }}</span>
           <span class="chip">Availability: {{ previewProfile.availability }}</span>
         </div>
+
         <p class="bio">{{ previewProfile.bio }}</p>
 
         <div class="preview-block">
@@ -251,7 +286,7 @@ const saveProfile = () => {
             <div v-for="item in previewProfile.portfolio" :key="item.label" class="portfolio-item">
               <p class="label">{{ item.label }}</p>
               <p class="muted">{{ item.tech }}</p>
-              <a class="link" :href="item.link || '#'">View</a>
+              <a class="link" :href="item.link || '#'" target="_blank" rel="noreferrer">View</a>
             </div>
           </div>
         </div>
@@ -259,10 +294,14 @@ const saveProfile = () => {
     </div>
 
     <div class="note">
-      <p>When you apply, your latest profile details are sent to the job poster. They can reply here to start a message thread immediately.</p>
+      <p>
+        When you apply, your latest profile details are sent to the job poster. They can reply here to start a message
+        thread immediately.
+      </p>
     </div>
   </section>
 </template>
+
 
 <style scoped>
 .profile-section {

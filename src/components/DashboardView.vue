@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, watch } from "vue"
 import { useAuthStore } from "../store/auth"
 import { useConversationStore } from "../store/conversations"
+import { useProfileStore } from "../store/profile"
 import api from "../services/api"
 import { DEFAULT_CHAIN } from "../services/solana"
 
@@ -28,89 +29,6 @@ import AuthLanding from "./AuthLanding.vue"
 const auth = useAuthStore()
 const showAuth = ref(!auth.isLogged)
 
-const baseProfile = () => ({
-  name: auth.user?.username || "User",
-  title: "",
-  location: "",
-  rate: "",
-  availability: "",
-  bio: "",
-  skills: [],
-  highlights: [],
-  portfolio: [],
-})
-
-const normalizeList = (value) => {
-  if (!value) return []
-  if (Array.isArray(value)) return value
-  if (typeof value === "string" && value.trim().startsWith("[")) {
-    try {
-      const parsed = JSON.parse(value)
-      return Array.isArray(parsed) ? parsed : []
-    } catch (error) {
-      // ignore malformed JSON and fallback to comma split
-    }
-  }
-  if (typeof value === "string") {
-    return value
-      .split(",")
-      .map((item) => item.trim())
-      .filter(Boolean)
-  }
-  return []
-}
-
-const mapUserToProfile = (user) => {
-  if (!user) return baseProfile()
-  const rate = typeof user.rate_hourly_usd === "number" && !Number.isNaN(user.rate_hourly_usd)
-    ? `${user.rate_hourly_usd} USDC/hr`
-    : user.rate_hourly_usd_label || user.rate || ""
-  let portfolio = []
-  if (Array.isArray(user.portfolio)) {
-    portfolio = user.portfolio
-  } else if (typeof user.portfolio === "string" && user.portfolio.trim().startsWith("[")) {
-    try {
-      const parsed = JSON.parse(user.portfolio)
-      portfolio = Array.isArray(parsed) ? parsed : []
-    } catch (error) {
-      portfolio = []
-    }
-  }
-  return {
-    name: user.username || user.name || baseProfile().name,
-    title: user.title || "",
-    location: user.location || "",
-    rate,
-    availability: user.availability || "",
-    bio: user.bio || user.about || "",
-    skills: normalizeList(user.skills),
-    highlights: normalizeList(user.highlights),
-    portfolio,
-  }
-}
-
-const formatProfileForSave = (profilePayload) => {
-  const parseRate = (label) => {
-    if (!label) return null
-    const numeric = parseFloat(String(label).replace(/[^\d.]/g, ""))
-    return Number.isFinite(numeric) ? numeric : null
-  }
-  const rateValue = parseRate(profilePayload.rate)
-  return {
-    username: profilePayload.name,
-    title: profilePayload.title,
-    location: profilePayload.location,
-    availability: profilePayload.availability,
-    bio: profilePayload.bio,
-    about: profilePayload.bio,
-    rate_hourly_usd: rateValue,
-    rate_hourly_usd_label: profilePayload.rate,
-    skills: profilePayload.skills,
-    highlights: profilePayload.highlights,
-    portfolio: profilePayload.portfolio,
-  }
-}
-
 // ==========================
 // TABS
 // ==========================
@@ -124,20 +42,36 @@ const tabs = [
   "DAO",
   "Admin",
 ]
-
 const activeTab = ref("Overview")
 
 // ==========================
-// PROFILE
+// PROFILE (NEW: /api/profiles/me via store)
 // ==========================
-const profileDetails = ref(baseProfile())
-const profileView = computed(() => profileDetails.value || baseProfile())
+const profileStore = useProfileStore()
 
+// ce que tu passes au composant ProfileSection
+const profileView = computed(() => profileStore.profile)
+
+// ce que tu utilises pour l'avatar en haut
 const profile = computed(() => ({
-  username: profileView.value.name || auth.user?.username || "User",
+  username: profileView.value?.name || auth.user?.username || "User",
   wallet: auth.user?.walletAddress,
   chain: auth.user?.chain || DEFAULT_CHAIN,
 }))
+
+async function loadProfile() {
+  if (!auth.isLogged) return
+  await profileStore.fetchMe()
+}
+
+async function handleSaveProfile(updatedProfile) {
+  try {
+    await profileStore.saveMe(updatedProfile)
+  } catch (error) {
+    alert("La sauvegarde du profil a échoué.")
+    console.error(error)
+  }
+}
 
 // ==========================
 // CONTRACTS
@@ -162,7 +96,6 @@ const walletConfig = ref({
 const isPlaceholderKey = (value) =>
   !value || value === "11111111111111111111111111111111"
 
-
 const programId = computed(() => walletConfig.value.programId)
 const usdcMint = computed(() => walletConfig.value.usdcMint)
 
@@ -178,6 +111,10 @@ const previewContract = ref(null)
 // ==========================
 const conversationStore = useConversationStore()
 const friendOptions = computed(() => conversationStore.friendOptions)
+
+// ⚠️ selon ton store :
+// - si tu as conversationPreviews + activeMessages -> adapte ici
+// - là je garde tes noms présents dans ton dashboard (conversationList, activeThread, totalUnread)
 const messageConversations = computed(() => conversationStore.conversationList)
 const activeConversation = computed(() => conversationStore.activeConversation)
 const activeThread = computed(() => conversationStore.activeThread)
@@ -207,7 +144,7 @@ async function loadWalletConfig() {
       network: data.network ?? DEFAULT_CHAIN,
       feeWallet: data.feeWallet ?? walletConfig.value.feeWallet,
 
-      // 🔥 IMPORTANT : ne jamais forcer ""
+      // ne jamais forcer ""
       admin1: data.admin1 ?? null,
       admin2: data.admin2 ?? null,
     }
@@ -218,30 +155,17 @@ async function loadWalletConfig() {
   }
 }
 
-async function loadProfile() {
-  if (!auth.isLogged || !auth.user?.uuid) {
-    profileDetails.value = baseProfile()
-    return
-  }
-  try {
-    const { data } = await api.get(`/users/${auth.user.uuid}`)
-    profileDetails.value = mapUserToProfile(data)
-  } catch (error) {
-    console.error("Failed to load profile", error)
-    profileDetails.value = mapUserToProfile({
-      username: auth.user?.username,
-    })
-  }
-}
-
-// ==========================
 async function loadMessagingData() {
   if (!auth.isLogged) return
-  conversationStore.setMyUuid(auth.userUuid) // ✅ important
+
+  // si ton store a bien cette méthode, garde-la, sinon supprime cette ligne
+  if (typeof conversationStore.setMyUuid === "function") {
+    conversationStore.setMyUuid(auth.userUuid)
+  }
+
   await conversationStore.fetchFriends()
   await conversationStore.fetchConversations()
 }
-
 
 // ==========================
 // MODAL ACTIONS
@@ -280,7 +204,6 @@ function openCreateContract() {
   showCreateContract.value = true
 }
 
-
 function closeCreateContract() {
   showCreateContract.value = false
 }
@@ -303,10 +226,12 @@ function closeContractPreview() {
 async function handleContractUpdated() {
   await loadMyContracts()
   if (!previewContract.value) return
+
   const currentId = previewContract.value.uuid || previewContract.value.id
   if (!currentId) return
+
   const updated = activeContracts.value.find(
-    (contract) => contract.uuid === currentId || contract.id === currentId
+    (contract) => contract.uuid === currentId || contract.id === currentId,
   )
   if (updated) previewContract.value = updated
 }
@@ -314,7 +239,7 @@ async function handleContractUpdated() {
 // ==========================
 // LOGIN SUCCESS
 // ==========================
-function handleConnected({ user, token }) {
+function handleConnected() {
   showAuth.value = false
   loadWalletConfig()
   loadMyContracts()
@@ -325,7 +250,6 @@ function handleConnected({ user, token }) {
 async function handleSelectConversation(conversationId) {
   await conversationStore.selectConversation(conversationId)
 }
-
 
 async function handleSendMessage(body) {
   try {
@@ -346,24 +270,12 @@ async function handleStartFriendChat(friendId) {
   }
 }
 
-async function handleDeleteMessage(payload) {
+async function handleDeleteMessage(messageId) {
   try {
-    await conversationStore.deleteMessage(payload)
+    await conversationStore.deleteMessage(messageId)
   } catch (error) {
     console.error(error)
     alert("Suppression impossible.")
-  }
-}
-
-async function handleSaveProfile(updatedProfile) {
-  if (!auth.user?.uuid) return
-  try {
-    const payload = formatProfileForSave(updatedProfile)
-    const { data } = await api.put(`/users/${auth.user.uuid}`, payload)
-    profileDetails.value = mapUserToProfile(data || { ...updatedProfile })
-  } catch (error) {
-    console.error("Failed to save profile", error)
-    alert("La sauvegarde du profil a échoué.")
   }
 }
 
@@ -381,7 +293,9 @@ watch(
       loadProfile()
     } else {
       conversationStore.reset()
-      profileDetails.value = baseProfile()
+      profileStore.reset()
+      activeContracts.value = []
+      activeTab.value = "Overview"
     }
   },
 )
@@ -401,13 +315,9 @@ onMounted(() => {
 
 <template>
   <!-- AUTH REQUIRED -->
-  <AuthLanding
-    v-if="showAuth"
-    @connected="handleConnected"
-  />
+  <AuthLanding v-if="showAuth" @connected="handleConnected" />
 
   <div v-else class="page">
-
     <!-- HEADER -->
     <header class="top-bar">
       <div class="work-pill">WORK</div>
@@ -426,10 +336,7 @@ onMounted(() => {
         @click="activeTab = tab"
       >
         <span>{{ tab }}</span>
-        <span
-          v-if="tab === 'Messages' && unreadCount"
-          class="tab-badge"
-        >
+        <span v-if="tab === 'Messages' && unreadCount" class="tab-badge">
           {{ unreadCount }}
         </span>
       </button>
@@ -466,6 +373,9 @@ onMounted(() => {
     <ProfileSection
       v-else-if="activeTab === 'Profile'"
       :profile="profileView"
+      :loading="profileStore.loading"
+      :saving="profileStore.saving"
+      :error="profileStore.error"
       @save-profile="handleSaveProfile"
     />
 
@@ -476,11 +386,7 @@ onMounted(() => {
     <!-- ==========================
          MODAL : CREATE CONTRACT
     ========================== -->
-    <div
-      v-if="showCreateContract"
-      class="overlay"
-      @click.self="closeCreateContract"
-    >
+    <div v-if="showCreateContract" class="overlay" @click.self="closeCreateContract">
       <ContractCreationModal
         :employers="friendOptions"
         :freelancer-wallet="freelancerWallet"
@@ -499,11 +405,7 @@ onMounted(() => {
     <!-- ==========================
          MODAL : PREVIEW CONTRACT
     ========================== -->
-    <div
-      v-if="showContractViewer"
-      class="overlay"
-      @click.self="closeContractPreview"
-    >
+    <div v-if="showContractViewer" class="overlay" @click.self="closeContractPreview">
       <ContractPreviewModal
         :contract="previewContract"
         :program-id="programId"
