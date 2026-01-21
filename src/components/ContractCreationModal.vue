@@ -2,10 +2,13 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue"
 import flatpickr from "flatpickr"
 import "flatpickr/dist/themes/dark.css"
-import { PublicKey, SystemProgram } from "@solana/web3.js"
+import { PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY } from "@solana/web3.js"
 import api from "../services/api"
 import idl from "../idl/escrow_program.json"
 import { useAuthStore } from "../store/auth"
+import BN from "bn.js"
+import { getMint, TOKEN_PROGRAM_ID } from "@solana/spl-token"
+import { Program } from "@coral-xyz/anchor"
 
 import {
   connectPhantom,
@@ -15,8 +18,7 @@ import {
   getUsdcBalance,
   getOrCreateAta,
   findEscrowPdas,
-  initializeEscrow,
-  loadProgram,
+  // initializeEscrow, // ✅ ON NE L’UTILISE PLUS ICI
 } from "../services/solana"
 
 // --------------------------------------------------
@@ -206,21 +208,68 @@ async function submitForm() {
       form.employer?.walletAddress || form.employer?.wallet_address
     if (!freelancerWallet) return alert("Wallet du freelance manquant.")
 
+    // ------------------------------------------
     // Connection / Provider / Program
+    // ✅ wallet wrapper Anchor-compatible
+    // ------------------------------------------
     const connection = getConnection(props.rpcUrl)
-    const provider = getAnchorProvider(connection, phantom)
 
-    // DEBUG (tu peux enlever après)
+    const wallet = {
+      publicKey,
+      signTransaction: phantom.signTransaction.bind(phantom),
+      signAllTransactions: phantom.signAllTransactions.bind(phantom),
+    }
+
+    const provider = getAnchorProvider(connection, wallet)
+
+    // Debug config
+    console.log("✅ programId =", props.programId)
+    console.log("✅ usdcMint =", props.usdcMint)
+    console.log("✅ feeWallet =", props.feeWallet)
+
+    // Debug wallet
     console.log("👛 provider.wallet =", provider.wallet.publicKey.toBase58())
     console.log("👛 ensurePhantom publicKey =", publicKey.toBase58())
 
-    // Anchor 0.30+: Program(idl, provider)
-    const program = loadProgram(idl, provider)
+    // ✅ Program Anchor avec programId runtime (PAS idl.address)
+    const program = new Program(idl, new PublicKey(props.programId), provider)
+    console.log("🧪 program.programId =", program.programId.toBase58())
+    console.log("🧪 idl.address =", idl.address)
+
+    // Mint decimals (important)
+    const mintPk = new PublicKey(props.usdcMint)
+    const mintInfo = await getMint(connection, mintPk)
+    const decimals = mintInfo.decimals
+    console.log("✅ mint decimals =", decimals)
+
+    // Amount: UI -> base units (u64)
+    const amountUsdcUi = Number(form.amountUsdc)
+    if (!Number.isFinite(amountUsdcUi) || amountUsdcUi <= 0) {
+      return alert("Montant invalide")
+    }
+
+    const amountBaseUnits = new BN(Math.round(amountUsdcUi * 10 ** decimals))
+
+    console.log(
+      "✅ amountUi =",
+      amountUsdcUi,
+      "=> baseUnits =",
+      amountBaseUnits.toString()
+    )
+
+    // Safety: don't exceed displayed balance
+    if (amountUsdcUi > usdcBalance.value) {
+      return alert(`Solde insuffisant: ${usdcBalance.value} USDC dispo`)
+    }
 
     const workerPk = new PublicKey(freelancerWallet)
-    const admin1Pk = admin1Key.value
-    const admin2Pk = admin2Key.value
-    const amountUsdc = Number(form.amountUsdc)
+
+    // 🔧 MODE SIMPLIFIÉ : admins = employer
+    const admin1Pk = publicKey
+    const admin2Pk = publicKey
+
+    const contractId = crypto.randomUUID()
+    console.log("✅ contractId =", contractId)
 
     // PDAs
     const { escrowStatePda, vaultPda } = await findEscrowPdas(
@@ -229,14 +278,55 @@ async function submitForm() {
       workerPk
     )
 
-    // ATA USDC de l'initializer (payer = wallet Phantom connecté)
-    const { ata: initializerUsdcAta } = await getOrCreateAta({
-      connection,
-      provider,
-      payer: provider.wallet.publicKey, // ✅ PAYEUR
-      owner: publicKey,                 // ✅ OWNER (initializer)
-      mint: new PublicKey(props.usdcMint),
-    })
+    // ✅ check existence
+    const escrowInfo = await connection.getAccountInfo(escrowStatePda)
+    if (escrowInfo) {
+      console.warn(
+        "⚠️ EscrowState PDA already exists:",
+        escrowStatePda.toBase58()
+      )
+      alert(
+        "Un escrow existe déjà pour ce worker. Choisis un autre worker ou supprime/reset l’escrow existant."
+      )
+      return
+    }
+
+    // ATA of initializer (Phantom)
+    let initializerUsdcAta
+
+    try {
+      console.log("➡️ calling getOrCreateAta ...")
+      const res = await getOrCreateAta({
+        connection,
+        provider,
+        payer: provider.wallet.publicKey,
+        owner: publicKey,
+        mint: mintPk,
+      })
+      initializerUsdcAta = res.ata
+      console.log("✅ getOrCreateAta result =", {
+        ata: initializerUsdcAta.toBase58(),
+        created: res.created,
+        sig: res.signature,
+      })
+    } catch (e) {
+      console.error("❌ getOrCreateAta FAILED:", e)
+      alert("getOrCreateAta FAILED: " + (e?.message || e))
+      throw e
+    }
+
+    console.log("✅ initializerUsdcAta =", initializerUsdcAta.toBase58())
+    const bal = await connection.getTokenAccountBalance(initializerUsdcAta)
+    console.log("✅ ATA uiAmount =", bal.value.uiAmountString)
+
+    // Debug accounts
+    console.log("initializer =", publicKey.toBase58())
+    console.log("worker =", workerPk.toBase58())
+    console.log("admin1 =", admin1Pk.toBase58())
+    console.log("admin2 =", admin2Pk.toBase58())
+    console.log("escrowStatePda =", escrowStatePda.toBase58())
+    console.log("vaultPda =", vaultPda.toBase58())
+    console.log("initializerUsdcAta =", initializerUsdcAta.toBase58())
 
     // Checkpoints
     const checkpointsArray = form.checkpoints
@@ -246,23 +336,29 @@ async function submitForm() {
           .filter(Boolean)
       : []
 
-    // 1) Initialize on-chain
+    // --------------------------------------------------
+    // ✅ ON-CHAIN INIT (appel Anchor DIRECT, sans helper)
+    // --------------------------------------------------
     txStatus.value = "Signature initialize_escrow..."
-    const signature = await initializeEscrow({
-      program,
-      amountUsdc,
-      initializer: publicKey,
-      worker: workerPk,
-      admin1: admin1Pk,
-      admin2: admin2Pk,
-      usdcMint: new PublicKey(props.usdcMint),
-      escrowStatePda,
-      vaultPda,
-      initializerUsdcAta,
-      feeBps: 500,
-    })
 
-    // 2) Backend
+    const signature = await program.methods
+      .initializeEscrow(amountBaseUnits, 500, admin1Pk, admin2Pk)
+      .accounts({
+        initializer: publicKey,
+        worker: workerPk,
+        escrowState: escrowStatePda,
+        vault: vaultPda,
+        initializerUsdcAta: initializerUsdcAta,
+        usdcMint: mintPk,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+        rent: SYSVAR_RENT_PUBKEY,
+      })
+      .rpc()
+
+    console.log("✅ initializeEscrow signature =", signature)
+
+    // 2) Backend (store UI amount)
     txStatus.value = "Creation du contrat..."
     const res = await api.post("/contracts", {
       title: form.title,
@@ -272,7 +368,7 @@ async function submitForm() {
         start: form.timeline.start,
         end: form.timeline.end,
       },
-      amountUsdc,
+      amountUsdc: amountUsdcUi,
       employerUuid,
       employerWallet,
       freelancerWallet,
@@ -288,8 +384,26 @@ async function submitForm() {
     txStatus.value = "Contrat cree."
     emit("created", res.data)
   } catch (err) {
-    console.error("Create contract error:", err)
-    alert(err.message || "Erreur creation contrat.")
+    console.error("❌ Create contract error:", err)
+
+    const logs =
+      (await err?.getLogs?.().catch(() => null)) ||
+      err?.logs ||
+      err?.transactionLogs ||
+      null
+
+    if (logs && Array.isArray(logs)) {
+      console.error("🔴 TX LOGS FULL ↓↓↓")
+      console.error(logs.join("\n"))
+    } else {
+      console.error("🔴 TX LOGS FULL: (aucun log dispo)")
+    }
+
+    alert(
+      "Transaction échouée.\n" +
+        "👉 Regarde la console (TX LOGS FULL).\n" +
+        (err?.message || "")
+    )
   } finally {
     loading.value = false
   }
@@ -351,7 +465,7 @@ onBeforeUnmount(() => {
         <input v-model="form.title" placeholder="e.g., L2 Audit November" />
       </label>
 
-      <label class="field ">
+      <label class="field">
         <span>Assign to</span>
         <div class="select-shell">
           <select v-model="form.employer" @change="console.log('Selected employer:', form.employer)">
@@ -361,12 +475,11 @@ onBeforeUnmount(() => {
             </option>
           </select>
         </div>
-
       </label>
 
       <label class="field full">
         <span>Amount (USDC)</span>
-        <input v-model="form.amountUsdc" type="number" min="0" step="0.01" placeholder="e.g., 2500" />
+        <input v-model="form.amountUsdc" type="number" min="0" step="0.000001" placeholder="e.g., 2500" />
         <p class="muted">USDC Balance: {{ usdcBalance.toFixed(2) }} USDC</p>
       </label>
 
@@ -403,11 +516,7 @@ onBeforeUnmount(() => {
   </div>
 </template>
 
-
 <style scoped>
-/* ================================================
-   🔥 FIX SELECT CUSTOM (ne change rien d’autre)
-   ================================================ */
 select {
   appearance: none;
   -webkit-appearance: none;
@@ -456,8 +565,6 @@ select {
   background: #0a0f24;
   color: #eae7ff;
 }
-
-
 
 /* ================================================
    🟣 TON STYLE ORIGINAL COMPLET (RESTAURÉ)

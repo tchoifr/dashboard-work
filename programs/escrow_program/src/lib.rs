@@ -1,8 +1,9 @@
 use std::str::FromStr;
+
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
 
-declare_id!("BP8zvH7gYunbsaSaJbwWtXgbfSuJew8vbCfW2jFNaQsV");
+declare_id!("51AMnj6WUTxXvxJ24XL4tMZpKDMmQYEJiKjPALu3vPVj");
 
 /// Wallet fixe qui reçoit les fees (USDC ATA du fee wallet est fourni côté front)
 const FEE_WALLET_STR: &str = "2QTYHp16qqvxW4HYvC9QuQoY9Kkr1oMiKwGfhCUvPktP";
@@ -11,8 +12,12 @@ const FEE_WALLET_STR: &str = "2QTYHp16qqvxW4HYvC9QuQoY9Kkr1oMiKwGfhCUvPktP";
 pub mod escrow_program {
     use super::*;
 
+    /// ✅ MULTI-CONTRAT:
+    /// - on ajoute `contract_id: [u8; 32]`
+    /// - le PDA escrow_state devient unique par (initializer, worker, contract_id)
     pub fn initialize_escrow(
         ctx: Context<InitializeEscrow>,
+        contract_id: [u8; 32], // ✅ NEW
         amount: u64,
         fee_bps: u16,
         admin_one: Pubkey,
@@ -22,11 +27,15 @@ pub mod escrow_program {
         require!(fee_bps <= 10_000, EscrowError::InvalidFeeBps);
 
         // fee wallet fixe
-        let fee_wallet = Pubkey::from_str(FEE_WALLET_STR).map_err(|_| EscrowError::InvalidFeeWallet)?;
+        let fee_wallet =
+            Pubkey::from_str(FEE_WALLET_STR).map_err(|_| EscrowError::InvalidFeeWallet)?;
 
         let escrow = &mut ctx.accounts.escrow_state;
+
         escrow.initializer = ctx.accounts.initializer.key();
         escrow.worker = ctx.accounts.worker.key();
+        escrow.contract_id = contract_id; // ✅ NEW (sert aux seeds ensuite)
+
         escrow.admin1 = admin_one;
         escrow.admin2 = admin_two;
 
@@ -81,7 +90,10 @@ pub mod escrow_program {
         let escrow = &mut ctx.accounts.escrow_state;
         require!(!escrow.finalized, EscrowError::AlreadyFinalized);
         require!(escrow.status == EscrowStatus::Accepted, EscrowError::BadStatus);
-        require!(ctx.accounts.initializer.key() == escrow.initializer, EscrowError::Unauthorized);
+        require!(
+            ctx.accounts.initializer.key() == escrow.initializer,
+            EscrowError::Unauthorized
+        );
 
         escrow.employer_approved = true;
         Ok(())
@@ -103,22 +115,40 @@ pub mod escrow_program {
 
         require!(!escrow.finalized, EscrowError::AlreadyFinalized);
         require!(escrow.status == EscrowStatus::Accepted, EscrowError::BadStatus);
-        require!(escrow.employer_approved && escrow.worker_approved, EscrowError::NotBothApproved);
+        require!(
+            escrow.employer_approved && escrow.worker_approved,
+            EscrowError::NotBothApproved
+        );
 
         // Vérifs ATA destination
-        require!(ctx.accounts.worker_usdc_ata.mint == escrow.usdc_mint, EscrowError::BadMint);
-        require!(ctx.accounts.worker_usdc_ata.owner == escrow.worker, EscrowError::BadOwner);
+        require!(
+            ctx.accounts.worker_usdc_ata.mint == escrow.usdc_mint,
+            EscrowError::BadMint
+        );
+        require!(
+            ctx.accounts.worker_usdc_ata.owner == escrow.worker,
+            EscrowError::BadOwner
+        );
 
         // Vérif fee account ATA
-        require!(ctx.accounts.admin_fee_account.mint == escrow.usdc_mint, EscrowError::BadMint);
-        require!(ctx.accounts.admin_fee_account.owner == escrow.fee_wallet, EscrowError::BadOwner);
+        require!(
+            ctx.accounts.admin_fee_account.mint == escrow.usdc_mint,
+            EscrowError::BadMint
+        );
+        require!(
+            ctx.accounts.admin_fee_account.owner == escrow.fee_wallet,
+            EscrowError::BadOwner
+        );
 
         let fee = (escrow.amount as u128)
             .checked_mul(escrow.fee_bps as u128)
             .unwrap()
             / 10_000u128;
         let fee_u64 = fee as u64;
-        let to_worker = escrow.amount.checked_sub(fee_u64).ok_or(EscrowError::MathError)?;
+        let to_worker = escrow
+            .amount
+            .checked_sub(fee_u64)
+            .ok_or(EscrowError::MathError)?;
 
         // signer = escrow_state PDA
         let bump_seed = [escrow.bump];
@@ -126,6 +156,7 @@ pub mod escrow_program {
             b"escrow",
             escrow.initializer.as_ref(),
             escrow.worker.as_ref(),
+            escrow.contract_id.as_ref(), // ✅ NEW
             &bump_seed,
         ];
         let signer_seeds: [&[&[u8]]; 1] = [seeds];
@@ -176,12 +207,11 @@ pub mod escrow_program {
             EscrowError::Unauthorized
         );
 
-        // on autorise dispute après accept (recommandé), mais tu peux autoriser plus tôt si tu veux
         require!(escrow.status == EscrowStatus::Accepted, EscrowError::BadStatus);
 
         escrow.status = EscrowStatus::Dispute;
 
-        // reset votes (optionnel)
+        // reset votes
         escrow.admin1_voted = false;
         escrow.admin2_voted = false;
         escrow.votes_for_worker = 0;
@@ -225,32 +255,54 @@ pub mod escrow_program {
         require!(escrow.status == EscrowStatus::Dispute, EscrowError::BadStatus);
 
         // 2/2 votes
-        require!(escrow.admin1_voted && escrow.admin2_voted, EscrowError::NotEnoughVotes);
-        require!(escrow.votes_for_worker > escrow.votes_for_employer, EscrowError::VoteNotForWorker);
+        require!(
+            escrow.admin1_voted && escrow.admin2_voted,
+            EscrowError::NotEnoughVotes
+        );
+        require!(
+            escrow.votes_for_worker > escrow.votes_for_employer,
+            EscrowError::VoteNotForWorker
+        );
 
-        // admin signer doit être admin1 ou admin2 (en plus des votes)
+        // admin signer doit être admin1 ou admin2
         let admin = ctx.accounts.admin.key();
         require!(admin == escrow.admin1 || admin == escrow.admin2, EscrowError::Unauthorized);
 
         // Vérifs ATA
-        require!(ctx.accounts.worker_usdc_ata.mint == escrow.usdc_mint, EscrowError::BadMint);
-        require!(ctx.accounts.worker_usdc_ata.owner == escrow.worker, EscrowError::BadOwner);
+        require!(
+            ctx.accounts.worker_usdc_ata.mint == escrow.usdc_mint,
+            EscrowError::BadMint
+        );
+        require!(
+            ctx.accounts.worker_usdc_ata.owner == escrow.worker,
+            EscrowError::BadOwner
+        );
 
-        require!(ctx.accounts.admin_fee_account.mint == escrow.usdc_mint, EscrowError::BadMint);
-        require!(ctx.accounts.admin_fee_account.owner == escrow.fee_wallet, EscrowError::BadOwner);
+        require!(
+            ctx.accounts.admin_fee_account.mint == escrow.usdc_mint,
+            EscrowError::BadMint
+        );
+        require!(
+            ctx.accounts.admin_fee_account.owner == escrow.fee_wallet,
+            EscrowError::BadOwner
+        );
 
         let fee = (escrow.amount as u128)
             .checked_mul(escrow.fee_bps as u128)
             .unwrap()
             / 10_000u128;
         let fee_u64 = fee as u64;
-        let to_worker = escrow.amount.checked_sub(fee_u64).ok_or(EscrowError::MathError)?;
+        let to_worker = escrow
+            .amount
+            .checked_sub(fee_u64)
+            .ok_or(EscrowError::MathError)?;
 
         let bump_seed = [escrow.bump];
         let seeds: &[&[u8]] = &[
             b"escrow",
             escrow.initializer.as_ref(),
             escrow.worker.as_ref(),
+            escrow.contract_id.as_ref(), // ✅ NEW
             &bump_seed,
         ];
         let signer_seeds: [&[&[u8]]; 1] = [seeds];
@@ -294,20 +346,33 @@ pub mod escrow_program {
         require!(!escrow.finalized, EscrowError::AlreadyFinalized);
         require!(escrow.status == EscrowStatus::Dispute, EscrowError::BadStatus);
 
-        require!(escrow.admin1_voted && escrow.admin2_voted, EscrowError::NotEnoughVotes);
-        require!(escrow.votes_for_employer > escrow.votes_for_worker, EscrowError::VoteNotForEmployer);
+        require!(
+            escrow.admin1_voted && escrow.admin2_voted,
+            EscrowError::NotEnoughVotes
+        );
+        require!(
+            escrow.votes_for_employer > escrow.votes_for_worker,
+            EscrowError::VoteNotForEmployer
+        );
 
         let admin = ctx.accounts.admin.key();
         require!(admin == escrow.admin1 || admin == escrow.admin2, EscrowError::Unauthorized);
 
-        require!(ctx.accounts.initializer_usdc_ata.mint == escrow.usdc_mint, EscrowError::BadMint);
-        require!(ctx.accounts.initializer_usdc_ata.owner == escrow.initializer, EscrowError::BadOwner);
+        require!(
+            ctx.accounts.initializer_usdc_ata.mint == escrow.usdc_mint,
+            EscrowError::BadMint
+        );
+        require!(
+            ctx.accounts.initializer_usdc_ata.owner == escrow.initializer,
+            EscrowError::BadOwner
+        );
 
         let bump_seed = [escrow.bump];
         let seeds: &[&[u8]] = &[
             b"escrow",
             escrow.initializer.as_ref(),
             escrow.worker.as_ref(),
+            escrow.contract_id.as_ref(), // ✅ NEW
             &bump_seed,
         ];
         let signer_seeds: [&[&[u8]]; 1] = [seeds];
@@ -338,6 +403,7 @@ pub mod escrow_program {
 // -------------------------
 
 #[derive(Accounts)]
+#[instruction(contract_id: [u8; 32])]
 pub struct InitializeEscrow<'info> {
     #[account(mut)]
     pub initializer: Signer<'info>,
@@ -350,7 +416,12 @@ pub struct InitializeEscrow<'info> {
         init,
         payer = initializer,
         space = 8 + EscrowState::LEN,
-        seeds = [b"escrow", initializer.key().as_ref(), worker.key().as_ref()],
+        seeds = [
+            b"escrow",
+            initializer.key().as_ref(),
+            worker.key().as_ref(),
+            contract_id.as_ref() // ✅ NEW seed
+        ],
         bump
     )]
     pub escrow_state: Account<'info, EscrowState>,
@@ -381,7 +452,12 @@ pub struct WorkerAccept<'info> {
     pub worker: Signer<'info>,
     #[account(
         mut,
-        seeds = [b"escrow", escrow_state.initializer.as_ref(), escrow_state.worker.as_ref()],
+        seeds = [
+            b"escrow",
+            escrow_state.initializer.as_ref(),
+            escrow_state.worker.as_ref(),
+            escrow_state.contract_id.as_ref(), // ✅ NEW
+        ],
         bump = escrow_state.bump
     )]
     pub escrow_state: Account<'info, EscrowState>,
@@ -392,7 +468,12 @@ pub struct EmployerApproveCompletion<'info> {
     pub initializer: Signer<'info>,
     #[account(
         mut,
-        seeds = [b"escrow", escrow_state.initializer.as_ref(), escrow_state.worker.as_ref()],
+        seeds = [
+            b"escrow",
+            escrow_state.initializer.as_ref(),
+            escrow_state.worker.as_ref(),
+            escrow_state.contract_id.as_ref(), // ✅ NEW
+        ],
         bump = escrow_state.bump
     )]
     pub escrow_state: Account<'info, EscrowState>,
@@ -403,7 +484,12 @@ pub struct WorkerApproveCompletion<'info> {
     pub worker: Signer<'info>,
     #[account(
         mut,
-        seeds = [b"escrow", escrow_state.initializer.as_ref(), escrow_state.worker.as_ref()],
+        seeds = [
+            b"escrow",
+            escrow_state.initializer.as_ref(),
+            escrow_state.worker.as_ref(),
+            escrow_state.contract_id.as_ref(), // ✅ NEW
+        ],
         bump = escrow_state.bump
     )]
     pub escrow_state: Account<'info, EscrowState>,
@@ -411,12 +497,17 @@ pub struct WorkerApproveCompletion<'info> {
 
 #[derive(Accounts)]
 pub struct ReleaseIfBothApproved<'info> {
-    /// peut être appelé par n'importe qui (pas besoin signer spécifique), c'est la logique on-chain qui protège
+    /// peut être appelé par n'importe qui
     pub caller: Signer<'info>,
 
     #[account(
         mut,
-        seeds = [b"escrow", escrow_state.initializer.as_ref(), escrow_state.worker.as_ref()],
+        seeds = [
+            b"escrow",
+            escrow_state.initializer.as_ref(),
+            escrow_state.worker.as_ref(),
+            escrow_state.contract_id.as_ref(), // ✅ NEW
+        ],
         bump = escrow_state.bump
     )]
     pub escrow_state: Account<'info, EscrowState>,
@@ -442,7 +533,12 @@ pub struct OpenDispute<'info> {
     pub signer: Signer<'info>,
     #[account(
         mut,
-        seeds = [b"escrow", escrow_state.initializer.as_ref(), escrow_state.worker.as_ref()],
+        seeds = [
+            b"escrow",
+            escrow_state.initializer.as_ref(),
+            escrow_state.worker.as_ref(),
+            escrow_state.contract_id.as_ref(), // ✅ NEW
+        ],
         bump = escrow_state.bump
     )]
     pub escrow_state: Account<'info, EscrowState>,
@@ -453,7 +549,12 @@ pub struct AdminVote<'info> {
     pub admin: Signer<'info>,
     #[account(
         mut,
-        seeds = [b"escrow", escrow_state.initializer.as_ref(), escrow_state.worker.as_ref()],
+        seeds = [
+            b"escrow",
+            escrow_state.initializer.as_ref(),
+            escrow_state.worker.as_ref(),
+            escrow_state.contract_id.as_ref(), // ✅ NEW
+        ],
         bump = escrow_state.bump
     )]
     pub escrow_state: Account<'info, EscrowState>,
@@ -465,7 +566,12 @@ pub struct ReleaseToWorker<'info> {
 
     #[account(
         mut,
-        seeds = [b"escrow", escrow_state.initializer.as_ref(), escrow_state.worker.as_ref()],
+        seeds = [
+            b"escrow",
+            escrow_state.initializer.as_ref(),
+            escrow_state.worker.as_ref(),
+            escrow_state.contract_id.as_ref(), // ✅ NEW
+        ],
         bump = escrow_state.bump
     )]
     pub escrow_state: Account<'info, EscrowState>,
@@ -492,7 +598,12 @@ pub struct RefundToEmployer<'info> {
 
     #[account(
         mut,
-        seeds = [b"escrow", escrow_state.initializer.as_ref(), escrow_state.worker.as_ref()],
+        seeds = [
+            b"escrow",
+            escrow_state.initializer.as_ref(),
+            escrow_state.worker.as_ref(),
+            escrow_state.contract_id.as_ref(), // ✅ NEW
+        ],
         bump = escrow_state.bump
     )]
     pub escrow_state: Account<'info, EscrowState>,
@@ -518,6 +629,8 @@ pub struct RefundToEmployer<'info> {
 pub struct EscrowState {
     pub initializer: Pubkey,
     pub worker: Pubkey,
+    pub contract_id: [u8; 32], // ✅ NEW (multi-contrat)
+
     pub admin1: Pubkey,
     pub admin2: Pubkey,
 
@@ -548,16 +661,17 @@ pub struct EscrowState {
 impl EscrowState {
     // taille fixe (Anchor: Option<bool> = 1 (tag) + 1 (value) = 2)
     pub const LEN: usize =
-        32 + 32 + 32 + 32 + // initializer, worker, admin1, admin2
-        32 + 32 +           // vault, usdc_mint
-        8 + 2 + 32 +        // amount, fee_bps, fee_wallet
-        1 +                 // status enum (discriminant)
-        1 + 1 +             // employer_approved, worker_approved
-        1 + 1 +             // admin1_voted, admin2_voted
-        1 + 1 +             // votes_for_worker, votes_for_employer
-        1 +                 // finalized
-        2 +                 // resolved_for_worker Option<bool>
-        1 + 1;              // bump, vault_bump
+        32 + 32 + 32 +       // initializer, worker, contract_id
+        32 + 32 +            // admin1, admin2
+        32 + 32 +            // vault, usdc_mint
+        8 + 2 + 32 +         // amount, fee_bps, fee_wallet
+        1 +                  // status enum
+        1 + 1 +              // employer_approved, worker_approved
+        1 + 1 +              // admin1_voted, admin2_voted
+        1 + 1 +              // votes_for_worker, votes_for_employer
+        1 +                  // finalized
+        2 +                  // resolved_for_worker Option<bool>
+        1 + 1;               // bump, vault_bump
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq)]

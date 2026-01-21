@@ -1,5 +1,5 @@
 {
-  "address": "BP8zvH7gYunbsaSaJbwWtXgbfSuJew8vbCfW2jFNaQsV",
+  "address": "51AMnj6WUTxXvxJ24XL4tMZpKDMmQYEJiKjPALu3vPVj",
   "metadata": {
     "name": "escrow_program",
     "version": "0.1.0",
@@ -51,6 +51,11 @@
               {
                 "kind": "account",
                 "path": "escrow_state.worker",
+                "account": "EscrowState"
+              },
+              {
+                "kind": "account",
+                "path": "escrow_state.contract_id",
                 "account": "EscrowState"
               }
             ]
@@ -106,6 +111,11 @@
                 "kind": "account",
                 "path": "escrow_state.worker",
                 "account": "EscrowState"
+              },
+              {
+                "kind": "account",
+                "path": "escrow_state.contract_id",
+                "account": "EscrowState"
               }
             ]
           }
@@ -115,6 +125,11 @@
     },
     {
       "name": "initialize_escrow",
+      "docs": [
+        "✅ MULTI-CONTRAT:",
+        "- on ajoute `contract_id: [u8; 32]`",
+        "- le PDA escrow_state devient unique par (initializer, worker, contract_id)"
+      ],
       "discriminator": [
         243,
         160,
@@ -157,6 +172,10 @@
               {
                 "kind": "account",
                 "path": "worker"
+              },
+              {
+                "kind": "arg",
+                "path": "contract_id"
               }
             ]
           }
@@ -204,6 +223,15 @@
         }
       ],
       "args": [
+        {
+          "name": "contract_id",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
         {
           "name": "amount",
           "type": "u64"
@@ -267,6 +295,11 @@
                 "kind": "account",
                 "path": "escrow_state.worker",
                 "account": "EscrowState"
+              },
+              {
+                "kind": "account",
+                "path": "escrow_state.contract_id",
+                "account": "EscrowState"
               }
             ]
           }
@@ -318,6 +351,11 @@
               {
                 "kind": "account",
                 "path": "escrow_state.worker",
+                "account": "EscrowState"
+              },
+              {
+                "kind": "account",
+                "path": "escrow_state.contract_id",
                 "account": "EscrowState"
               }
             ]
@@ -375,7 +413,7 @@
         {
           "name": "caller",
           "docs": [
-            "peut être appelé par n'importe qui (pas besoin signer spécifique), c'est la logique on-chain qui protège"
+            "peut être appelé par n'importe qui"
           ],
           "signer": true
         },
@@ -403,6 +441,11 @@
               {
                 "kind": "account",
                 "path": "escrow_state.worker",
+                "account": "EscrowState"
+              },
+              {
+                "kind": "account",
+                "path": "escrow_state.contract_id",
                 "account": "EscrowState"
               }
             ]
@@ -490,6 +533,11 @@
                 "kind": "account",
                 "path": "escrow_state.worker",
                 "account": "EscrowState"
+              },
+              {
+                "kind": "account",
+                "path": "escrow_state.contract_id",
+                "account": "EscrowState"
               }
             ]
           }
@@ -573,6 +621,11 @@
                 "kind": "account",
                 "path": "escrow_state.worker",
                 "account": "EscrowState"
+              },
+              {
+                "kind": "account",
+                "path": "escrow_state.contract_id",
+                "account": "EscrowState"
               }
             ]
           }
@@ -621,6 +674,11 @@
               {
                 "kind": "account",
                 "path": "escrow_state.worker",
+                "account": "EscrowState"
+              },
+              {
+                "kind": "account",
+                "path": "escrow_state.contract_id",
                 "account": "EscrowState"
               }
             ]
@@ -730,6 +788,15 @@
           {
             "name": "worker",
             "type": "pubkey"
+          },
+          {
+            "name": "contract_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
           },
           {
             "name": "admin1",

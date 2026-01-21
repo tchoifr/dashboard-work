@@ -5,7 +5,7 @@
  * IDL can be found at `target/idl/escrow_program.json`.
  */
 export type EscrowProgram = {
-  "address": "BP8zvH7gYunbsaSaJbwWtXgbfSuJew8vbCfW2jFNaQsV",
+  "address": "51AMnj6WUTxXvxJ24XL4tMZpKDMmQYEJiKjPALu3vPVj",
   "metadata": {
     "name": "escrowProgram",
     "version": "0.1.0",
@@ -57,6 +57,11 @@ export type EscrowProgram = {
               {
                 "kind": "account",
                 "path": "escrow_state.worker",
+                "account": "escrowState"
+              },
+              {
+                "kind": "account",
+                "path": "escrow_state.contract_id",
                 "account": "escrowState"
               }
             ]
@@ -112,6 +117,11 @@ export type EscrowProgram = {
                 "kind": "account",
                 "path": "escrow_state.worker",
                 "account": "escrowState"
+              },
+              {
+                "kind": "account",
+                "path": "escrow_state.contract_id",
+                "account": "escrowState"
               }
             ]
           }
@@ -121,6 +131,11 @@ export type EscrowProgram = {
     },
     {
       "name": "initializeEscrow",
+      "docs": [
+        "✅ MULTI-CONTRAT:",
+        "- on ajoute `contract_id: [u8; 32]`",
+        "- le PDA escrow_state devient unique par (initializer, worker, contract_id)"
+      ],
       "discriminator": [
         243,
         160,
@@ -163,6 +178,10 @@ export type EscrowProgram = {
               {
                 "kind": "account",
                 "path": "worker"
+              },
+              {
+                "kind": "arg",
+                "path": "contractId"
               }
             ]
           }
@@ -210,6 +229,15 @@ export type EscrowProgram = {
         }
       ],
       "args": [
+        {
+          "name": "contractId",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
         {
           "name": "amount",
           "type": "u64"
@@ -273,6 +301,11 @@ export type EscrowProgram = {
                 "kind": "account",
                 "path": "escrow_state.worker",
                 "account": "escrowState"
+              },
+              {
+                "kind": "account",
+                "path": "escrow_state.contract_id",
+                "account": "escrowState"
               }
             ]
           }
@@ -324,6 +357,11 @@ export type EscrowProgram = {
               {
                 "kind": "account",
                 "path": "escrow_state.worker",
+                "account": "escrowState"
+              },
+              {
+                "kind": "account",
+                "path": "escrow_state.contract_id",
                 "account": "escrowState"
               }
             ]
@@ -381,7 +419,7 @@ export type EscrowProgram = {
         {
           "name": "caller",
           "docs": [
-            "peut être appelé par n'importe qui (pas besoin signer spécifique), c'est la logique on-chain qui protège"
+            "peut être appelé par n'importe qui"
           ],
           "signer": true
         },
@@ -409,6 +447,11 @@ export type EscrowProgram = {
               {
                 "kind": "account",
                 "path": "escrow_state.worker",
+                "account": "escrowState"
+              },
+              {
+                "kind": "account",
+                "path": "escrow_state.contract_id",
                 "account": "escrowState"
               }
             ]
@@ -496,6 +539,11 @@ export type EscrowProgram = {
                 "kind": "account",
                 "path": "escrow_state.worker",
                 "account": "escrowState"
+              },
+              {
+                "kind": "account",
+                "path": "escrow_state.contract_id",
+                "account": "escrowState"
               }
             ]
           }
@@ -579,6 +627,11 @@ export type EscrowProgram = {
                 "kind": "account",
                 "path": "escrow_state.worker",
                 "account": "escrowState"
+              },
+              {
+                "kind": "account",
+                "path": "escrow_state.contract_id",
+                "account": "escrowState"
               }
             ]
           }
@@ -627,6 +680,11 @@ export type EscrowProgram = {
               {
                 "kind": "account",
                 "path": "escrow_state.worker",
+                "account": "escrowState"
+              },
+              {
+                "kind": "account",
+                "path": "escrow_state.contract_id",
                 "account": "escrowState"
               }
             ]
@@ -736,6 +794,15 @@ export type EscrowProgram = {
           {
             "name": "worker",
             "type": "pubkey"
+          },
+          {
+            "name": "contractId",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
           },
           {
             "name": "admin1",

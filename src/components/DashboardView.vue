@@ -237,6 +237,7 @@ async function loadProfile() {
 // ==========================
 async function loadMessagingData() {
   if (!auth.isLogged) return
+  conversationStore.setMyUuid(auth.userUuid) // ✅ important
   await conversationStore.fetchFriends()
   await conversationStore.fetchConversations()
 }
