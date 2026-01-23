@@ -1,44 +1,33 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref, watch } from "vue"
+import { useJobsStore } from "../store/jobs"
 
 const props = defineProps({
-  jobs: {
-    type: Array,
-    default: () => [],
-  },
+  // optionnel: si tu veux garder ton emit apply-job
+})
+const emit = defineEmits(["apply-job"])
+
+const jobsStore = useJobsStore()
+const search = ref("")
+
+const jobs = computed(() => jobsStore.publicJobs)
+const loading = computed(() => jobsStore.loadingPublic)
+const error = computed(() => jobsStore.error)
+
+onMounted(async () => {
+  await jobsStore.fetchPublic({ q: "" })
 })
 
-const emit = defineEmits(['apply-job'])
-
-const search = ref('')
-
-const statusClass = (status) => {
-  if (!status) return ''
-  const normalized = status.toLowerCase()
-  if (normalized.includes('cours')) return 'en-cours'
-  if (normalized.includes('attente')) return 'en-attente'
-  if (normalized.includes('valid')) return 'valide'
-  if (normalized.includes('litige')) return 'litige'
-  return ''
-}
-
-const filteredJobs = computed(() => {
-  const term = search.value.trim().toLowerCase()
-  if (!term) return props.jobs
-  return props.jobs.filter((job) => {
-    const haystack = [
-      job.title,
-      job.company,
-      job.location,
-      job.budget,
-      job.status,
-      ...(job.tags || []),
-    ]
-      .join(' ')
-      .toLowerCase()
-    return haystack.includes(term)
-  })
+// simple debounce sans lib
+let t = null
+watch(search, (val) => {
+  clearTimeout(t)
+  t = setTimeout(() => {
+    jobsStore.fetchPublic({ q: val })
+  }, 250)
 })
+
+const canApply = (job) => true // plus tard: logique applied etc.
 </script>
 
 <template>
@@ -46,52 +35,67 @@ const filteredJobs = computed(() => {
     <div class="panel-header">
       <div>
         <p class="eyebrow">Find a job</p>
-        <h2>Explorer et filtrer les jobs disponibles</h2>
+        <h2>Explore published jobs</h2>
+        <p class="muted">Search by title, company, tags, budget…</p>
       </div>
+
       <div class="search">
-        <input v-model="search" type="search" placeholder="Rechercher par titre, stack ou client" />
+        <input v-model="search" type="search" placeholder="Search by title, stack, company..." />
       </div>
     </div>
 
-    <div v-if="filteredJobs.length" class="grid">
-      <article v-for="job in filteredJobs" :key="job.id || job.title + job.company" class="card">
+    <p v-if="error" class="error">{{ error }}</p>
+    <p v-if="loading" class="muted">Loading...</p>
+
+    <div v-if="jobs.length" class="grid">
+      <article v-for="job in jobs" :key="job.id" class="card">
         <div class="card-head">
-          <div class="icon">💼</div>
           <div class="info">
             <h3>{{ job.title }}</h3>
-            <p class="muted">{{ job.company }}</p>
+            <p class="muted">{{ job.companyName }}</p>
             <p class="sub">
-              <span class="dot">•</span> {{ job.location }}
-              <span class="dot">•</span> {{ job.posted }}
+              <span class="dot-sep">•</span>
+              {{ job.locationType }}<span v-if="job.locationLabel"> ({{ job.locationLabel }})</span>
+              <span class="dot-sep">•</span>
+              {{ job.postedLabel || "—" }}
             </p>
           </div>
+
           <div class="badges">
-            <span class="badge" :class="job.type">{{ job.type }}</span>
-            <span v-if="job.status" class="status-badge" :class="statusClass(job.status)">{{ job.status }}</span>
+            <span class="badge">{{ job.jobType }}</span>
           </div>
         </div>
 
-        <div class="tags">
+        <p v-if="job.description" class="description">{{ job.description }}</p>
+
+        <div class="tags" v-if="job.tags?.length">
           <span v-for="tag in job.tags" :key="tag" class="tag">{{ tag }}</span>
         </div>
 
         <div class="footer">
           <div class="budget">
             <p class="label">Budget</p>
-            <p class="value">{{ job.budget }}</p>
+            <p class="value">
+              <span v-if="job.budgetMin">{{ job.budgetMin }}</span>
+              <span v-if="job.budgetMax"> - {{ job.budgetMax }}</span>
+              <span v-if="job.currency"> {{ job.currency }}</span>
+              <span v-if="job.period"> / {{ job.period }}</span>
+            </p>
           </div>
+
           <div class="actions">
-            <span v-if="job.applied" class="applied-badge">Applied</span>
-            <button class="apply-btn" type="button" :disabled="job.applied" @click="emit('apply-job', job)">
-              {{ job.applied ? 'Already Applied' : 'Apply Now' }}
+            <button class="apply-btn" type="button" :disabled="!canApply(job)" @click="emit('apply-job', job)">
+              Apply
             </button>
           </div>
         </div>
       </article>
     </div>
-    <p v-else class="empty">Aucun job ne correspond à ta recherche.</p>
+
+    <p v-else-if="!loading" class="empty">No published jobs yet.</p>
   </section>
 </template>
+
 
 <style scoped>
 .jobs {
@@ -189,6 +193,18 @@ h2 {
 .sub {
   color: #6d7c92;
   font-size: 12px;
+}
+
+.description {
+  color: #8a98b2;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-line;
+  max-height: 120px;
+  overflow: auto;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  padding-right: 6px;
 }
 
 .dot {

@@ -1,177 +1,195 @@
 <script setup>
-import { reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref } from "vue"
+import { useJobsStore } from "../store/jobs"
 
-const props = defineProps({
-  jobs: {
-    type: Array,
-    default: () => [],
-  },
-})
-
-const emit = defineEmits(['apply-job', 'start-applicant-conversation', 'reject-applicant', 'start-applicant-contract'])
+const jobsStore = useJobsStore()
 
 const showForm = ref(false)
-const newJob = reactive({
-  title: '',
-  company: '',
-  location: 'Remote',
-  posted: 'Today',
-  type: 'Full-Time',
-  status: 'En Attente',
-  tagsInput: '',
-  budget: '',
+
+const form = reactive({
+  title: "",
+  companyName: "",
+  locationType: "remote",     // remote | hybrid | onsite
+  locationLabel: "",          // optional label like "Paris" when onsite/hybrid
+  jobType: "contract",        // full_time | part_time | contract | freelance
+  budgetMin: "",              // numeric string
+  budgetMax: "",              // numeric string
+  currency: "USDC",           // string
+  period: "month",            // month | day | fixed
+  description: "",            // job description
+  tagsInput: "",              // "solidity, react"
 })
 
-const localJobs = ref([...props.jobs])
-const expandedApplicant = ref({})
-const selectedCandidate = ref(null)
-const selectedJob = ref(null)
+const loading = computed(() => jobsStore.loadingMine)
+const saving = computed(() => jobsStore.saving)
+const error = computed(() => jobsStore.error)
+const myJobs = computed(() => jobsStore.myJobs)
 
-watch(
-  () => props.jobs,
-  (incoming) => {
-    localJobs.value = [...incoming]
-  },
-  { deep: true }
-)
-
-const statusClass = (status) => {
-  if (!status) return ''
-  const normalized = status.toLowerCase()
-  if (normalized.includes('cours')) return 'en-cours'
-  if (normalized.includes('attente')) return 'en-attente'
-  if (normalized.includes('valid')) return 'valide'
-  if (normalized.includes('litige')) return 'litige'
-  return ''
-}
+onMounted(async () => {
+  await jobsStore.fetchMine()
+})
 
 const resetForm = () => {
-  newJob.title = ''
-  newJob.company = ''
-  newJob.location = 'Remote'
-  newJob.posted = 'Today'
-  newJob.type = 'Full-Time'
-  newJob.status = 'En Attente'
-  newJob.tagsInput = ''
-  newJob.budget = ''
+  form.title = ""
+  form.companyName = ""
+  form.locationType = "remote"
+  form.locationLabel = ""
+  form.jobType = "contract"
+  form.budgetMin = ""
+  form.budgetMax = ""
+  form.currency = "USDC"
+  form.period = "month"
+  form.description = ""
+  form.tagsInput = ""
 }
 
 const openForm = () => {
   resetForm()
   showForm.value = true
 }
+const closeForm = () => (showForm.value = false)
 
-const closeForm = () => {
-  showForm.value = false
-}
-
-const submitJob = () => {
-  if (!newJob.title || !newJob.company || !newJob.budget) return
-  const tags = newJob.tagsInput
-    .split(',')
-    .map((tag) => tag.trim())
+const parseTags = (input) =>
+  input
+    .split(",")
+    .map((t) => t.trim())
     .filter(Boolean)
 
-  localJobs.value = [
-    {
-      title: newJob.title,
-      company: newJob.company,
-      location: newJob.location,
-      posted: newJob.posted,
-      type: newJob.type,
-      status: newJob.status,
-      tags,
-      budget: newJob.budget,
-    },
-    ...localJobs.value,
-  ]
+const submitJob = async () => {
+  if (!form.title || !form.companyName) return
 
+  const payload = {
+    title: form.title.trim(),
+    companyName: form.companyName.trim(),
+    locationType: form.locationType,
+    locationLabel: form.locationLabel.trim() || null,
+    jobType: form.jobType,
+    currency: form.currency.trim() || "USDC",
+    period: form.period,
+    budgetMin: form.budgetMin !== "" ? String(form.budgetMin).trim() : null,
+    budgetMax: form.budgetMax !== "" ? String(form.budgetMax).trim() : null,
+    description: form.description.trim(),
+    tags: parseTags(form.tagsInput),
+  }
+
+  await jobsStore.createJob(payload)
   closeForm()
 }
 
-const jobKey = (job) => job.id || `${job.company}-${job.title}`
+const statusLabel = (job) => (job.isPublic ? "Published" : "Not public")
+const dotClass = (job) => (job.isPublic ? "dot green" : "dot red")
 
-const toggleApplicant = (job, candidate) => {
-  selectedJob.value = job
-  selectedCandidate.value = candidate
+const onPublish = async (job) => {
+  await jobsStore.publishJob(job.id)
 }
-
-const isExpanded = () => false
-
-const closeCandidateModal = () => {
-  selectedCandidate.value = null
-  selectedJob.value = null
+const onWithdraw = async (job) => {
+  await jobsStore.withdrawJob(job.id)
+}
+const onDelete = async (job) => {
+  if (!confirm("Delete this job?")) return
+  await jobsStore.deleteJob(job.id)
 }
 </script>
 
 <template>
   <section class="jobs">
     <div class="panel-header">
-      <h2>Available Jobs</h2>
+      <div>
+        <p class="eyebrow">My Jobs</p>
+        <h2>Your job postings</h2>
+        <p class="muted">Create, publish, withdraw, and manage your jobs.</p>
+      </div>
+
       <button class="primary-btn" type="button" @click="openForm">
         <span class="plus">+</span>
-        Post Job
+        Create Job
       </button>
     </div>
 
-    <div class="grid">
-      <article v-for="job in localJobs" :key="job.id || job.title" class="card">
+    <p v-if="error" class="error">{{ error }}</p>
+    <p v-if="loading" class="muted">Loading...</p>
+
+    <div v-if="myJobs.length" class="grid">
+      <article v-for="job in myJobs" :key="job.id" class="card">
         <div class="card-head">
-          <div class="icon">📄</div>
           <div class="info">
+            <div class="title-row">
+              <span :class="dotClass(job)" aria-hidden="true"></span>
+              <span class="status-text">{{ statusLabel(job) }}</span>
+            </div>
+
             <h3>{{ job.title }}</h3>
-            <p class="muted">{{ job.company }}</p>
+            <p class="muted">{{ job.companyName }}</p>
+
             <p class="sub">
-              <span class="dot">•</span> {{ job.location }}
-              <span class="dot">•</span> {{ job.posted }}
+              <span class="dot-sep">•</span>
+              {{ job.locationType }}<span v-if="job.locationLabel"> ({{ job.locationLabel }})</span>
+              <span class="dot-sep">•</span>
+              {{ job.postedLabel || "—" }}
             </p>
           </div>
+
           <div class="badges">
-            <span class="badge" :class="job.type">{{ job.type }}</span>
-            <span v-if="job.status" class="status-badge" :class="statusClass(job.status)">{{ job.status }}</span>
+            <span class="badge">{{ job.jobType }}</span>
           </div>
         </div>
 
-        <div class="tags">
+        <p v-if="job.description" class="description">{{ job.description }}</p>
+
+        <div class="tags" v-if="job.tags?.length">
           <span v-for="tag in job.tags" :key="tag" class="tag">{{ tag }}</span>
         </div>
 
         <div class="footer">
           <div class="budget">
             <p class="label">Budget</p>
-            <p class="value">{{ job.budget }}</p>
+            <p class="value">
+              <span v-if="job.budgetMin">{{ job.budgetMin }}</span>
+              <span v-if="job.budgetMax"> - {{ job.budgetMax }}</span>
+              <span v-if="job.currency"> {{ job.currency }}</span>
+              <span v-if="job.period"> / {{ job.period }}</span>
+            </p>
           </div>
-        </div>
 
-        <div v-if="job.applicants && job.applicants.length" class="applicants">
-          <div class="applicants-head">
-            <p class="label">Candidatures</p>
-            <span class="count">{{ job.applicants.length }}</span>
-          </div>
-          <div class="applicants-list">
-            <div v-for="candidate in job.applicants" :key="candidate?.id || candidate?.name" class="applicant-row">
-              <div class="applicant-main">
-                <p class="applicant-name">{{ candidate.name }}</p>
-                <p class="muted small">{{ candidate.title }}</p>
-              </div>
-              <div class="applicant-actions">
-                <button class="ghost-btn view-btn" type="button" @click="toggleApplicant(job, candidate)">
-                  Voir profil
-                </button>
-              </div>
-            </div>
+          <div class="actions">
+            <button
+              v-if="!job.isPublic"
+              class="primary-btn compact"
+              type="button"
+              :disabled="saving"
+              @click="onPublish(job)"
+            >
+              Publish
+            </button>
+
+            <button
+              v-else
+              class="primary-btn compact"
+              type="button"
+              :disabled="saving"
+              @click="onWithdraw(job)"
+            >
+              Withdraw
+            </button>
+
+            <button class="danger-btn compact" type="button" :disabled="saving" @click="onDelete(job)">
+              Delete
+            </button>
           </div>
         </div>
       </article>
     </div>
 
+    <p v-else-if="!loading" class="empty">No jobs yet.</p>
+
+    <!-- Modal create -->
     <div v-if="showForm" class="modal" @click.self="closeForm">
       <div class="modal-card">
         <header class="modal-head">
           <div>
-            <p class="eyebrow">Nouveau job</p>
-            <h3>Publier une offre</h3>
-            <p class="muted">Ajoutez les infos principales pour rendre votre offre visible.</p>
+            <p class="eyebrow">New job</p>
+            <h3>Create a job posting</h3>
+            <p class="muted">It will be private until you publish it.</p>
           </div>
           <button class="close-btn" type="button" @click="closeForm">×</button>
         </header>
@@ -179,156 +197,99 @@ const closeCandidateModal = () => {
         <form class="form" @submit.prevent="submitJob">
           <div class="two-col">
             <label class="field">
-              <span>Titre</span>
-              <input v-model="newJob.title" type="text" placeholder="Ex: Senior Web3 Developer" required />
+              <span>Title</span>
+              <input v-model="form.title" type="text" placeholder="e.g. Senior Web3 Developer" required />
             </label>
+
             <label class="field">
-              <span>Entreprise / Client</span>
-              <input v-model="newJob.company" type="text" placeholder="Ex: DeFi Protocol" required />
+              <span>Company</span>
+              <input v-model="form.companyName" type="text" placeholder="e.g. DeFi Protocol" required />
             </label>
           </div>
+
           <div class="two-col">
             <label class="field">
-              <span>Localisation</span>
-              <input v-model="newJob.location" type="text" placeholder="Remote" />
+              <span>Location type</span>
+              <select v-model="form.locationType">
+                <option value="remote">Remote</option>
+                <option value="hybrid">Hybrid</option>
+                <option value="onsite">Onsite</option>
+              </select>
             </label>
+
             <label class="field">
-              <span>Date de publication</span>
-              <input v-model="newJob.posted" type="text" placeholder="Today" />
+              <span>Location label (optional)</span>
+              <input v-model="form.locationLabel" type="text" placeholder="e.g. Paris" />
             </label>
           </div>
+
           <div class="two-col">
             <label class="field">
-              <span>Type</span>
-              <select v-model="newJob.type">
-                <option>Full-Time</option>
-                <option>Part-Time</option>
-                <option>Contract</option>
+              <span>Job type</span>
+              <select v-model="form.jobType">
+                <option value="full_time">Full-time</option>
+                <option value="part_time">Part-time</option>
+                <option value="contract">Contract</option>
+                <option value="freelance">Freelance</option>
               </select>
             </label>
+
             <label class="field">
-              <span>Statut</span>
-              <select v-model="newJob.status">
-                <option>En Attente</option>
-                <option>En Cours</option>
-                <option>Valide</option>
-                <option>Litige</option>
+              <span>Budget period</span>
+              <select v-model="form.period">
+                <option value="month">Month</option>
+                <option value="day">Day</option>
+                <option value="fixed">Fixed</option>
               </select>
             </label>
           </div>
+
+          <div class="two-col">
+            <label class="field">
+              <span>Budget min</span>
+              <input v-model="form.budgetMin" type="number" step="0.000001" placeholder="e.g. 8000" />
+            </label>
+
+            <label class="field">
+              <span>Budget max (optional)</span>
+              <input v-model="form.budgetMax" type="number" step="0.000001" placeholder="e.g. 12000" />
+            </label>
+          </div>
+
+          <div class="two-col">
+            <label class="field">
+              <span>Currency</span>
+              <input v-model="form.currency" type="text" placeholder="USDC" />
+            </label>
+
+            <label class="field">
+              <span>Tags</span>
+              <input v-model="form.tagsInput" type="text" placeholder="Solidity, React, Web3" />
+              <small>Comma-separated.</small>
+            </label>
+          </div>
+
           <label class="field">
-            <span>Budget</span>
-            <input v-model="newJob.budget" type="text" placeholder="8,000-12,000 USDC/month" required />
-          </label>
-          <label class="field">
-            <span>Tags</span>
-            <input v-model="newJob.tagsInput" type="text" placeholder="Solidity, React, Web3.js" />
-            <small>Séparez les tags par des virgules.</small>
+            <span>Description</span>
+            <textarea
+              v-model="form.description"
+              rows="4"
+              placeholder="Describe the role, responsibilities, and requirements..."
+            ></textarea>
           </label>
 
           <div class="form-actions">
-            <button class="ghost-btn" type="button" @click="closeForm">Annuler</button>
-            <button class="primary-btn" type="submit" :disabled="!newJob.title || !newJob.company || !newJob.budget">
-              Créer le job
+            <button class="ghost-btn" type="button" @click="closeForm">Cancel</button>
+            <button class="primary-btn" type="submit" :disabled="saving || !form.title || !form.companyName">
+              Create
             </button>
           </div>
         </form>
       </div>
     </div>
-
-    <div v-if="selectedCandidate" class="candidate-overlay" @click.self="closeCandidateModal">
-      <div class="candidate-card">
-        <header class="modal-head">
-          <div>
-            <p class="eyebrow">Profil candidat</p>
-            <h3>{{ selectedCandidate.name }}</h3>
-            <p class="muted">{{ selectedCandidate.title }}</p>
-          </div>
-          <button class="close-btn" type="button" @click="closeCandidateModal">×</button>
-        </header>
-
-        <div class="candidate-preview">
-          <div class="summary-top">
-            <span class="chip">Rate: {{ selectedCandidate.profile?.rate || selectedCandidate.rate }}</span>
-            <span class="chip">Disponibilité: {{ selectedCandidate.profile?.availability || selectedCandidate.availability }}</span>
-            <span v-if="selectedCandidate.profile?.location" class="chip">Location: {{ selectedCandidate.profile.location }}</span>
-          </div>
-          <p class="muted summary-bio">
-            {{ selectedCandidate.profile?.bio || selectedCandidate.bio || 'Profil candidat' }}
-          </p>
-
-          <div class="summary-section">
-            <div class="section-head">
-              <p class="label">Core Skills</p>
-            </div>
-            <div class="tags">
-              <span
-                v-for="skill in selectedCandidate.profile?.skills || selectedCandidate.skills || []"
-                :key="skill"
-                class="tag"
-              >
-                {{ skill }}
-              </span>
-            </div>
-          </div>
-
-          <div
-            v-if="(selectedCandidate.profile?.highlights || selectedCandidate.highlights || []).length"
-            class="summary-section"
-          >
-            <div class="section-head">
-              <p class="label">Highlights</p>
-            </div>
-            <ul class="summary-list">
-              <li
-                v-for="item in selectedCandidate.profile?.highlights || selectedCandidate.highlights || []"
-                :key="item"
-              >
-                {{ item }}
-              </li>
-            </ul>
-          </div>
-
-          <div
-            v-if="(selectedCandidate.profile?.portfolio || selectedCandidate.portfolio || []).length"
-            class="summary-section"
-          >
-            <div class="section-head">
-              <p class="label">Portfolio</p>
-            </div>
-            <div class="portfolio">
-              <div
-                v-for="item in selectedCandidate.profile?.portfolio || selectedCandidate.portfolio || []"
-                :key="item.label"
-                class="portfolio-item"
-              >
-                <p class="portfolio-title">{{ item.label }}</p>
-                <p class="muted small">{{ item.tech }}</p>
-                <a class="link" :href="item.link || '#'">View</a>
-              </div>
-            </div>
-          </div>
-
-          <div v-if="selectedCandidate.note" class="candidate-note">
-            {{ selectedCandidate.note }}
-          </div>
-        </div>
-
-        <div class="detail-actions">
-          <button class="ghost-btn" type="button" @click="emit('reject-applicant', { job: selectedJob, applicant: selectedCandidate })">
-            Refuser
-          </button>
-          <button class="primary-btn compact" type="button" @click="emit('start-applicant-contract', { job: selectedJob, applicant: selectedCandidate })">
-            Démarrer contrat
-          </button>
-          <button class="ghost-btn" type="button" @click="emit('start-applicant-conversation', { job: selectedJob, applicant: selectedCandidate })">
-            Démarrer conv.
-          </button>
-        </div>
-      </div>
-    </div>
   </section>
 </template>
+
 
 <style scoped>
 .jobs {
@@ -373,6 +334,39 @@ h2 {
 }
 
 .primary-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.danger-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+
+  padding: 10px 14px;
+  border-radius: 12px;
+
+  border: 1px solid rgba(255, 80, 80, 0.45);
+  background: linear-gradient(90deg, #ff4d4d, #ff1f6a);
+
+  color: #2a0606;
+  font-weight: 800;
+  cursor: pointer;
+
+  box-shadow: 0 12px 28px rgba(255, 60, 60, 0.28);
+
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+.danger-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 32px rgba(255, 60, 60, 0.38);
+}
+
+.danger-btn:active {
+  transform: translateY(0);
+}
+
+.danger-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
@@ -432,6 +426,18 @@ h2 {
 .sub {
   color: #6d7c92;
   font-size: 12px;
+}
+
+.description {
+  color: #8a98b2;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-line;
+  max-height: 120px;
+  overflow: auto;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  padding-right: 6px;
 }
 
 .dot {
@@ -766,6 +772,7 @@ h2 {
 }
 
 .field input,
+.field textarea,
 .field select {
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(120, 90, 255, 0.28);
@@ -929,5 +936,39 @@ h2 {
   color: #eae7ff;
   font-weight: 700;
   margin: 0 0 2px;
+}
+
+
+
+/* --- status dot (🟢 / 🔴) --- */
+.title-row{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.dot{
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  display: inline-block;
+  box-shadow: 0 0 12px rgba(255,255,255,0.15);
+}
+
+.dot.green{
+  background: #2ecc71; /* green */
+  box-shadow: 0 0 14px rgba(46, 204, 113, 0.45);
+}
+
+.dot.red{
+  background: #ff4d4f; /* red */
+  box-shadow: 0 0 14px rgba(255, 77, 79, 0.45);
+}
+
+.status-text{
+  font-size: 0.9rem;
+  font-weight: 600;
+  opacity: 0.95;
 }
 </style>
