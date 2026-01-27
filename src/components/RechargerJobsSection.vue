@@ -1,33 +1,44 @@
 <script setup>
 import { computed, onMounted, ref, watch } from "vue"
 import { useJobsStore } from "../store/jobs"
-
-const props = defineProps({
-  // optionnel: si tu veux garder ton emit apply-job
-})
-const emit = defineEmits(["apply-job"])
+import { useAuthStore } from "../store/auth"
 
 const jobsStore = useJobsStore()
+const auth = useAuthStore()
+
 const search = ref("")
 
-const jobs = computed(() => jobsStore.publicJobs)
-const loading = computed(() => jobsStore.loadingPublic)
+const jobs = computed(() => jobsStore.jobs)
+const loading = computed(() => jobsStore.loadingJobs)
 const error = computed(() => jobsStore.error)
+const saving = computed(() => jobsStore.saving)
 
 onMounted(async () => {
-  await jobsStore.fetchPublic({ q: "" })
+  await jobsStore.fetchJobs({ q: "" })
 })
 
-// simple debounce sans lib
 let t = null
 watch(search, (val) => {
   clearTimeout(t)
   t = setTimeout(() => {
-    jobsStore.fetchPublic({ q: val })
+    jobsStore.fetchJobs({ q: val })
   }, 250)
 })
 
-const canApply = (job) => true // plus tard: logique applied etc.
+const canApply = (job) => {
+  // si backend renvoie ownerId, on bloque
+  if (job.ownerId && auth.userUuid && job.ownerId === auth.userUuid) return false
+  return true
+}
+
+const onApply = async (job) => {
+  try {
+    await jobsStore.applyToJob(job.id)
+    alert("Applied ✅")
+  } catch (e) {
+    alert(e.message || "Apply failed")
+  }
+}
 </script>
 
 <template>
@@ -35,8 +46,8 @@ const canApply = (job) => true // plus tard: logique applied etc.
     <div class="panel-header">
       <div>
         <p class="eyebrow">Find a job</p>
-        <h2>Explore published jobs</h2>
-        <p class="muted">Search by title, company, tags, budget…</p>
+        <h2>Explore jobs</h2>
+        <p class="muted">Search by title, company, tags…</p>
       </div>
 
       <div class="search">
@@ -75,16 +86,11 @@ const canApply = (job) => true // plus tard: logique applied etc.
         <div class="footer">
           <div class="budget">
             <p class="label">Budget</p>
-            <p class="value">
-              <span v-if="job.budgetMin">{{ job.budgetMin }}</span>
-              <span v-if="job.budgetMax"> - {{ job.budgetMax }}</span>
-              <span v-if="job.currency"> {{ job.currency }}</span>
-              <span v-if="job.period"> / {{ job.period }}</span>
-            </p>
+            <p class="value">{{ job.budgetLabel || "—" }}</p>
           </div>
 
           <div class="actions">
-            <button class="apply-btn" type="button" :disabled="!canApply(job)" @click="emit('apply-job', job)">
+            <button class="apply-btn" type="button" :disabled="saving || !canApply(job)" @click="onApply(job)">
               Apply
             </button>
           </div>
@@ -92,7 +98,7 @@ const canApply = (job) => true // plus tard: logique applied etc.
       </article>
     </div>
 
-    <p v-else-if="!loading" class="empty">No published jobs yet.</p>
+    <p v-else-if="!loading" class="empty">No jobs yet.</p>
   </section>
 </template>
 

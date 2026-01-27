@@ -5,19 +5,17 @@ import { useJobsStore } from "../store/jobs"
 const jobsStore = useJobsStore()
 
 const showForm = ref(false)
+const showApplicantsFor = ref(null) // jobId
 
 const form = reactive({
   title: "",
   companyName: "",
-  locationType: "remote",     // remote | hybrid | onsite
-  locationLabel: "",          // optional label like "Paris" when onsite/hybrid
-  jobType: "contract",        // full_time | part_time | contract | freelance
-  budgetMin: "",              // numeric string
-  budgetMax: "",              // numeric string
-  currency: "USDC",           // string
-  period: "month",            // month | day | fixed
-  description: "",            // job description
-  tagsInput: "",              // "solidity, react"
+  locationType: "remote",
+  locationLabel: "",
+  jobType: "contract",
+  budgetLabel: "",
+  description: "",
+  tagsInput: "",
 })
 
 const loading = computed(() => jobsStore.loadingMine)
@@ -35,10 +33,7 @@ const resetForm = () => {
   form.locationType = "remote"
   form.locationLabel = ""
   form.jobType = "contract"
-  form.budgetMin = ""
-  form.budgetMax = ""
-  form.currency = "USDC"
-  form.period = "month"
+  form.budgetLabel = ""
   form.description = ""
   form.tagsInput = ""
 }
@@ -64,31 +59,70 @@ const submitJob = async () => {
     locationType: form.locationType,
     locationLabel: form.locationLabel.trim() || null,
     jobType: form.jobType,
-    currency: form.currency.trim() || "USDC",
-    period: form.period,
-    budgetMin: form.budgetMin !== "" ? String(form.budgetMin).trim() : null,
-    budgetMax: form.budgetMax !== "" ? String(form.budgetMax).trim() : null,
+    budgetLabel: form.budgetLabel.trim() || null,
     description: form.description.trim(),
     tags: parseTags(form.tagsInput),
   }
 
-  await jobsStore.createJob(payload)
-  closeForm()
+  try {
+    await jobsStore.createJob(payload)
+    closeForm()
+  } catch (e) {
+    alert(e?.response?.data?.message || e.message || "Create failed")
+  }
 }
 
-const statusLabel = (job) => (job.isPublic ? "Published" : "Not public")
-const dotClass = (job) => (job.isPublic ? "dot green" : "dot red")
+const statusLabel = (job) => {
+  if (job.status === "published") return "Published"
+  if (job.status === "rejected") return "Rejected"
+  return "Draft"
+}
+const dotClass = (job) => {
+  if (job.status === "published") return "dot green"
+  if (job.status === "rejected") return "dot red"
+  return "dot gray"
+}
 
 const onPublish = async (job) => {
-  await jobsStore.publishJob(job.id)
+  try {
+    await jobsStore.publishJob(job.id)
+  } catch (e) {
+    alert(e?.response?.data?.message || e.message || "Publish failed")
+  }
 }
 const onWithdraw = async (job) => {
-  await jobsStore.withdrawJob(job.id)
+  try {
+    await jobsStore.withdrawJob(job.id)
+  } catch (e) {
+    alert(e?.response?.data?.message || e.message || "Withdraw failed")
+  }
 }
 const onDelete = async (job) => {
   if (!confirm("Delete this job?")) return
-  await jobsStore.deleteJob(job.id)
+  try {
+    await jobsStore.deleteJob(job.id)
+  } catch (e) {
+    alert(e?.response?.data?.message || e.message || "Delete failed")
+  }
 }
+
+const openApplicants = async (job) => {
+  showApplicantsFor.value = job.id
+  try {
+    await jobsStore.fetchApplicants(job.id)
+  } catch (e) {
+    // error déjà stocké dans applicantsState
+  }
+}
+const closeApplicants = () => {
+  showApplicantsFor.value = null
+}
+
+const applicantsState = computed(() => {
+  const jobId = showApplicantsFor.value
+  if (!jobId) return { loading: false, error: null, items: [] }
+  return jobsStore.applicantsState(jobId)
+})
 </script>
 
 <template>
@@ -116,6 +150,16 @@ const onDelete = async (job) => {
             <div class="title-row">
               <span :class="dotClass(job)" aria-hidden="true"></span>
               <span class="status-text">{{ statusLabel(job) }}</span>
+
+              <button
+                v-if="job.applicantsCount > 0"
+                class="notif"
+                type="button"
+                @click="openApplicants(job)"
+                title="View applicants"
+              >
+                {{ job.applicantsCount }}
+              </button>
             </div>
 
             <h3>{{ job.title }}</h3>
@@ -143,17 +187,13 @@ const onDelete = async (job) => {
         <div class="footer">
           <div class="budget">
             <p class="label">Budget</p>
-            <p class="value">
-              <span v-if="job.budgetMin">{{ job.budgetMin }}</span>
-              <span v-if="job.budgetMax"> - {{ job.budgetMax }}</span>
-              <span v-if="job.currency"> {{ job.currency }}</span>
-              <span v-if="job.period"> / {{ job.period }}</span>
-            </p>
+            <p class="value">{{ job.budgetLabel || "—" }}</p>
           </div>
 
           <div class="actions">
+            <!-- ✅ publish seulement si pending -->
             <button
-              v-if="!job.isPublic"
+              v-if="job.status === 'pending'"
               class="primary-btn compact"
               type="button"
               :disabled="saving"
@@ -162,8 +202,9 @@ const onDelete = async (job) => {
               Publish
             </button>
 
+            <!-- ✅ withdraw seulement si published -->
             <button
-              v-else
+              v-else-if="job.status === 'published'"
               class="primary-btn compact"
               type="button"
               :disabled="saving"
@@ -174,6 +215,15 @@ const onDelete = async (job) => {
 
             <button class="danger-btn compact" type="button" :disabled="saving" @click="onDelete(job)">
               Delete
+            </button>
+
+            <button
+              v-if="job.applicantsCount > 0"
+              class="ghost-btn compact"
+              type="button"
+              @click="openApplicants(job)"
+            >
+              View applicants
             </button>
           </div>
         </div>
@@ -235,33 +285,16 @@ const onDelete = async (job) => {
             </label>
 
             <label class="field">
-              <span>Budget period</span>
-              <select v-model="form.period">
-                <option value="month">Month</option>
-                <option value="day">Day</option>
-                <option value="fixed">Fixed</option>
-              </select>
+              <span>Budget (free text)</span>
+              <input
+                v-model="form.budgetLabel"
+                type="text"
+                placeholder="e.g. 8000 USDC / month, or 500/day, or Negotiable"
+              />
             </label>
           </div>
 
           <div class="two-col">
-            <label class="field">
-              <span>Budget min</span>
-              <input v-model="form.budgetMin" type="number" step="0.000001" placeholder="e.g. 8000" />
-            </label>
-
-            <label class="field">
-              <span>Budget max (optional)</span>
-              <input v-model="form.budgetMax" type="number" step="0.000001" placeholder="e.g. 12000" />
-            </label>
-          </div>
-
-          <div class="two-col">
-            <label class="field">
-              <span>Currency</span>
-              <input v-model="form.currency" type="text" placeholder="USDC" />
-            </label>
-
             <label class="field">
               <span>Tags</span>
               <input v-model="form.tagsInput" type="text" placeholder="Solidity, React, Web3" />
@@ -271,11 +304,7 @@ const onDelete = async (job) => {
 
           <label class="field">
             <span>Description</span>
-            <textarea
-              v-model="form.description"
-              rows="4"
-              placeholder="Describe the role, responsibilities, and requirements..."
-            ></textarea>
+            <textarea v-model="form.description" rows="4" placeholder="Describe the role..."></textarea>
           </label>
 
           <div class="form-actions">
@@ -287,11 +316,57 @@ const onDelete = async (job) => {
         </form>
       </div>
     </div>
+
+    <!-- Modal Applicants -->
+    <div v-if="showApplicantsFor" class="modal" @click.self="closeApplicants">
+      <div class="modal-card">
+        <header class="modal-head">
+          <div>
+            <p class="eyebrow">Applicants</p>
+            <h3>People who applied</h3>
+            <p class="muted">You can contact them after.</p>
+          </div>
+          <button class="close-btn" type="button" @click="closeApplicants">×</button>
+        </header>
+
+        <div class="modal-body">
+          <p v-if="applicantsState.loading" class="muted">Loading applicants...</p>
+          <p v-else-if="applicantsState.error" class="error">{{ applicantsState.error }}</p>
+
+          <div v-else-if="applicantsState.items.length">
+            <article v-for="a in applicantsState.items" :key="a.userId" class="applicant">
+              <div class="row">
+                <strong>{{ a.username || a.walletAddress || a.userId }}</strong>
+                <span class="badge">{{ a.status }}</span>
+              </div>
+              <p class="muted small">{{ a.walletAddress }}</p>
+              <p class="muted small">Applied: {{ new Date(a.createdAt).toLocaleString() }}</p>
+            </article>
+          </div>
+
+          <p v-else class="muted">No applicants yet.</p>
+        </div>
+      </div>
+    </div>
   </section>
 </template>
 
 
 <style scoped>
+
+.notif {
+  margin-left: 10px;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  font-size: 12px;
+  border: 0;
+  cursor: pointer;
+}
+.dot.gray { opacity: 0.5; }
+.small { font-size: 12px; }
+.applicant { padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.08); }
+.row { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
 .jobs {
   display: flex;
   flex-direction: column;
