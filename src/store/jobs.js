@@ -1,3 +1,4 @@
+// src/store/jobs.js
 import { defineStore } from "pinia"
 import api from "../services/api"
 import { useAuthStore } from "./auth"
@@ -32,34 +33,27 @@ const normalizeJob = (job) => {
     description: job.description ?? "",
     tags: Array.isArray(job.tags) ? job.tags : [],
 
-    status: job.status ?? "pending",
+    status: job.status ?? null,
     rejectedReason: job.rejectedReason ?? null,
-
     createdAt: job.createdAt ?? null,
     publishedAt: job.publishedAt ?? null,
 
-    // utile pour empêcher Apply si c'est ton job
-    ownerId: job.ownerId ?? null,
-
-    // UI
     postedLabel: toIsoLabel(job.publishedAt || job.createdAt),
+    isPublic: job.status === "published",
     applicantsCount,
   }
 }
 
 export const useJobsStore = defineStore("jobs", {
   state: () => ({
-    // Owner jobs
     myJobs: [],
     loadingMine: false,
 
-    // Browse jobs (protégé JWT aussi)
     jobs: [],
     jobsMeta: { page: 1, limit: 20, total: 0, sort: "recent", q: "" },
     loadingJobs: false,
 
-    // Applicants per job (owner only)
-    applicantsByJobId: {}, // { [jobId]: { loading, error, items: [] } }
+    applicantsByJobId: {},
 
     saving: false,
     error: null,
@@ -82,6 +76,18 @@ export const useJobsStore = defineStore("jobs", {
       this.error = null
     },
 
+    // ✅ helper réactif: remplace l’objet dans le tableau
+    upsertMyJob(updated) {
+      if (!updated?.id) return
+      const idx = this.myJobs.findIndex((j) => j.id === updated.id)
+      if (idx === -1) {
+        this.myJobs = [updated, ...this.myJobs]
+        return
+      }
+      // IMPORTANT: remplacement par une nouvelle ref -> update UI immédiat
+      this.myJobs = this.myJobs.map((j) => (j.id === updated.id ? updated : j))
+    },
+
     async fetchMine() {
       const auth = useAuthStore()
       if (!auth.token) return
@@ -93,6 +99,7 @@ export const useJobsStore = defineStore("jobs", {
         this.myJobs = Array.isArray(data) ? data.map(normalizeJob) : []
       } catch (e) {
         this.error = e?.response?.data?.message || e.message || "Failed to load my jobs"
+        console.error("jobs.fetchMine failed", e?.response?.status, e?.response?.data || e)
         this.myJobs = []
       } finally {
         this.loadingMine = false
@@ -121,18 +128,23 @@ export const useJobsStore = defineStore("jobs", {
           },
         })
 
-        const items = Array.isArray(data?.items) ? data.items : []
+        const items = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : []
         this.jobs = items.map(normalizeJob)
 
-        this.jobsMeta = {
-          page: data?.page ?? page,
-          limit: data?.limit ?? limit,
-          total: data?.total ?? 0,
-          sort,
-          q,
+        if (data?.items) {
+          this.jobsMeta = {
+            page: data?.page ?? page,
+            limit: data?.limit ?? limit,
+            total: data?.total ?? 0,
+            sort,
+            q,
+          }
+        } else {
+          this.jobsMeta = { ...this.jobsMeta, page, limit, sort, q }
         }
       } catch (e) {
         this.error = e?.response?.data?.message || e.message || "Failed to load jobs"
+        console.error("jobs.fetchJobs failed", e?.response?.status, e?.response?.data || e)
         this.jobs = []
       } finally {
         this.loadingJobs = false
@@ -143,7 +155,6 @@ export const useJobsStore = defineStore("jobs", {
       const auth = useAuthStore()
       if (!auth.token) return
 
-      // payload attendu par ton JobService->create
       const payload = {
         title: payloadFromUi.title,
         companyName: payloadFromUi.companyName,
@@ -160,29 +171,33 @@ export const useJobsStore = defineStore("jobs", {
       try {
         const { data } = await api.post("/jobs", payload)
         const created = normalizeJob(data)
-        this.myJobs = [created, ...this.myJobs.filter((j) => j.id !== created.id)]
+        this.upsertMyJob(created)
         return created
       } catch (e) {
         this.error = e?.response?.data?.message || e.message || "Failed to create job"
+        console.error("jobs.createJob failed", e?.response?.status, e?.response?.data || e)
         throw e
       } finally {
         this.saving = false
       }
     },
 
-    async updateJob(id, patch) {
+    async updateJob(id, patchFromUi) {
       const auth = useAuthStore()
       if (!auth.token) return
+
+      const patch = { ...patchFromUi }
 
       this.saving = true
       this.error = null
       try {
         const { data } = await api.patch(`/jobs/${id}`, patch)
         const updated = normalizeJob(data)
-        this.myJobs = this.myJobs.map((j) => (j.id === id ? updated : j))
+        this.upsertMyJob(updated)
         return updated
       } catch (e) {
         this.error = e?.response?.data?.message || e.message || "Failed to update job"
+        console.error("jobs.updateJob failed", e?.response?.status, e?.response?.data || e)
         throw e
       } finally {
         this.saving = false
@@ -200,6 +215,7 @@ export const useJobsStore = defineStore("jobs", {
         this.myJobs = this.myJobs.filter((j) => j.id !== id)
       } catch (e) {
         this.error = e?.response?.data?.message || e.message || "Failed to delete job"
+        console.error("jobs.deleteJob failed", e?.response?.status, e?.response?.data || e)
         throw e
       } finally {
         this.saving = false
@@ -214,11 +230,25 @@ export const useJobsStore = defineStore("jobs", {
       this.error = null
       try {
         const { data } = await api.patch(`/jobs/${id}/publish`)
-        const updated = normalizeJob(data)
-        this.myJobs = this.myJobs.map((j) => (j.id === id ? updated : j))
+
+        // Certaines API renvoient 204/empty body -> on met à jour localement
+        let updated = normalizeJob(data)
+        if (!updated) {
+          const existing = this.myJobs.find((j) => j.id === id)
+          if (existing) {
+            updated = normalizeJob({
+              ...existing,
+              status: "published",
+              publishedAt: existing.publishedAt || new Date().toISOString(),
+            })
+          }
+        }
+
+        if (updated) this.upsertMyJob(updated)
         return updated
       } catch (e) {
         this.error = e?.response?.data?.message || e.message || "Failed to publish job"
+        console.error("jobs.publishJob failed", e?.response?.status, e?.response?.data || e)
         throw e
       } finally {
         this.saving = false
@@ -233,18 +263,31 @@ export const useJobsStore = defineStore("jobs", {
       this.error = null
       try {
         const { data } = await api.patch(`/jobs/${id}/withdraw`)
-        const updated = normalizeJob(data)
-        this.myJobs = this.myJobs.map((j) => (j.id === id ? updated : j))
+
+        // Même logique que publish: fallback si réponse vide
+        let updated = normalizeJob(data)
+        if (!updated) {
+          const existing = this.myJobs.find((j) => j.id === id)
+          if (existing) {
+            updated = normalizeJob({
+              ...existing,
+              status: "draft",
+              publishedAt: null,
+            })
+          }
+        }
+
+        if (updated) this.upsertMyJob(updated)
         return updated
       } catch (e) {
         this.error = e?.response?.data?.message || e.message || "Failed to withdraw job"
+        console.error("jobs.withdrawJob failed", e?.response?.status, e?.response?.data || e)
         throw e
       } finally {
         this.saving = false
       }
     },
 
-    // Freelance applies
     async applyToJob(jobId) {
       const auth = useAuthStore()
       if (!auth.token) return
@@ -255,9 +298,9 @@ export const useJobsStore = defineStore("jobs", {
         const { data } = await api.post(`/jobs/${jobId}/apply`, {})
         return data
       } catch (e) {
-        // ton controller renvoie 409 avec message clair
+        const status = e?.response?.status
         const msg = e?.response?.data?.message || e.message || "Failed to apply"
-        if (e?.response?.status === 409) throw new Error(msg)
+        if (status === 409) throw new Error(msg)
         this.error = msg
         throw e
       } finally {
@@ -265,12 +308,12 @@ export const useJobsStore = defineStore("jobs", {
       }
     },
 
-    // Owner views applicants
     async fetchApplicants(jobId) {
       const auth = useAuthStore()
       if (!auth.token) return
 
       this.applicantsByJobId[jobId] = { loading: true, error: null, items: [] }
+
       try {
         const { data } = await api.get(`/jobs/${jobId}/applications`)
         this.applicantsByJobId[jobId] = {

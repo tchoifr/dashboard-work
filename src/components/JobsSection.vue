@@ -72,15 +72,14 @@ const submitJob = async () => {
   }
 }
 
+// ✅ 2 états UI seulement : published => vert, sinon rouge
 const statusLabel = (job) => {
-  if (job.status === "published") return "Published"
-  if (job.status === "rejected") return "Rejected"
-  return "Draft"
+  const s = (job?.status || "").toLowerCase()
+  return s === "published" ? "Published" : "Rejected"
 }
 const dotClass = (job) => {
-  if (job.status === "published") return "dot green"
-  if (job.status === "rejected") return "dot red"
-  return "dot gray"
+  const s = (job?.status || "").toLowerCase()
+  return s === "published" ? "dot green" : "dot red"
 }
 
 const onPublish = async (job) => {
@@ -110,7 +109,7 @@ const openApplicants = async (job) => {
   showApplicantsFor.value = job.id
   try {
     await jobsStore.fetchApplicants(job.id)
-  } catch (e) {
+  } catch {
     // error déjà stocké dans applicantsState
   }
 }
@@ -191,9 +190,9 @@ const applicantsState = computed(() => {
           </div>
 
           <div class="actions">
-            <!-- ✅ publish seulement si pending -->
+            <!-- ✅ publish si pas published -->
             <button
-              v-if="job.status === 'pending'"
+              v-if="(job.status || '').toLowerCase() !== 'published'"
               class="primary-btn compact"
               type="button"
               :disabled="saving"
@@ -202,9 +201,9 @@ const applicantsState = computed(() => {
               Publish
             </button>
 
-            <!-- ✅ withdraw seulement si published -->
+            <!-- ✅ withdraw si published -->
             <button
-              v-else-if="job.status === 'published'"
+              v-else
               class="primary-btn compact"
               type="button"
               :disabled="saving"
