@@ -1,3 +1,4 @@
+// src/store/auth.js (Pinia)
 import { defineStore } from "pinia"
 import publicApi from "../services/publicApi"
 import bs58 from "bs58"
@@ -23,7 +24,10 @@ export const useAuthStore = defineStore("auth", {
   },
 
   actions: {
-    async loginWithWallet({ username, mode = "login" }) {
+    /**
+     * mode: "login" | "register"
+     */
+    async loginWithWallet({ username = null, mode = "login" }) {
       this.loading = true
       this.error = null
 
@@ -31,34 +35,49 @@ export const useAuthStore = defineStore("auth", {
         const phantom = getPhantomProvider()
         if (!phantom) throw new Error("Phantom non détecté")
 
+        // 1) Connect wallet
         const { publicKey } = await connectPhantom()
         const walletAddress = publicKey?.toBase58()
         if (!walletAddress) throw new Error("Wallet introuvable")
 
+        // 2) Ask nonce
         const { data: nonceData } = await publicApi.post("/auth/nonce", {
           walletAddress,
           chain: DEFAULT_CHAIN,
-          username,
         })
 
-        const isNew = nonceData.isNewUser === true
+        // Backend -> { nonce, accountExists }
+        const accountExists = nonceData.accountExists === true
+        const nonce = nonceData.nonce
 
-        if (mode === "signup" && !isNew) throw new Error("Compte déjà existant")
-        if (mode === "login" && isNew) throw new Error("Aucun compte trouvé")
+        if (!nonce) throw new Error("Nonce manquant depuis le backend")
 
-        const message = nonceData.message || `Login nonce: ${nonceData.nonce}`
+        // 3) UX rules (block BEFORE signing)
+        if (mode === "register" && accountExists) {
+          // IMPORTANT: on ne signe pas, on ne call pas /auth/verify
+          throw new Error("Ce wallet a déjà un compte. Passe en mode connexion.")
+        }
+
+        if (mode === "login" && !accountExists) {
+          throw new Error("Aucun compte trouvé pour ce wallet. Crée un compte.")
+        }
+
+        // 4) Build message & sign
+        const message = `Login nonce: ${nonce}`
         const encoded = new TextEncoder().encode(message)
 
         const signed = await phantom.signMessage(encoded, "utf8")
-        const sigBytes = signed.signature || signed
+        const sigBytes = signed?.signature || signed
         const signatureBase58 = bs58.encode(sigBytes)
 
+        // 5) Verify signature -> create/login + return JWT
         const { data: verifyData } = await publicApi.post("/auth/verify", {
           walletAddress,
           signature: signatureBase58,
-          nonce: nonceData.nonce,
-          username,
+          nonce, // utile si le user n'existe pas encore (dans ton back)
+          username: mode === "register" ? (username || walletAddress) : undefined,
           chain: DEFAULT_CHAIN,
+          mode, // (optionnel: si tu veux renforcer côté back plus tard)
         })
 
         this.token = verifyData.token
@@ -73,7 +92,7 @@ export const useAuthStore = defineStore("auth", {
 
         return verifyData
       } catch (e) {
-        this.error = e.message || "Erreur d’authentification"
+        this.error = e?.message || "Erreur d’authentification"
         throw e
       } finally {
         this.loading = false

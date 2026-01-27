@@ -1,3 +1,4 @@
+<!-- src/components/AuthSolana.vue (ou ton fichier actuel) -->
 <script setup>
 import { ref } from "vue"
 import { useAuthStore } from "../store/auth"
@@ -6,7 +7,7 @@ import { connectPhantom, getPhantomProvider } from "../services/solana"
 const auth = useAuthStore()
 const emit = defineEmits(["connected"])
 
-const mode = ref("login") // login | register
+const mode = ref("login") // "login" | "register"
 const username = ref("")
 const status = ref("")
 
@@ -21,23 +22,36 @@ async function handleProceed() {
       return
     }
 
+    // (Optionnel) tu peux laisser connectPhantom ici, même si le store le refait.
+    // Ça donne un feedback plus immédiat côté UI.
     await connectPhantom()
 
-    status.value = "Signature du message..."
+    status.value = mode.value === "register" ? "Vérification du compte..." : "Vérification du compte..."
 
     const res = await auth.loginWithWallet({
       username: mode.value === "register" ? username.value : null,
-      mode: mode.value,
+      mode: mode.value, // "login" | "register"
+      // onUsernameTaken: () => { ... } // pas nécessaire ici, on le gère en catch
     })
 
     emit("connected", {
       token: res.token,
       user: res.user,
     })
-
   } catch (e) {
     console.error(e)
-    alert(e.message || "Erreur lors de la connexion.")
+    const msg = e?.message || "Erreur lors de la connexion."
+    alert(msg)
+
+    // UX: si wallet déjà utilisé en mode register -> on repasse en login
+    if (msg.includes("déjà un compte") || msg.includes("already exists")) {
+      mode.value = "login"
+    }
+
+    // si pas de compte en login -> proposer register
+    if (msg.includes("Aucun compte") || msg.includes("not found")) {
+      mode.value = "register"
+    }
   } finally {
     status.value = ""
   }
@@ -47,7 +61,6 @@ async function handleProceed() {
 <template>
   <section class="auth">
     <div class="card">
-
       <div class="icon"><span>WORK</span></div>
 
       <h1>Connexion Solana</h1>
