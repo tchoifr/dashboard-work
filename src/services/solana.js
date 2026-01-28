@@ -1,14 +1,6 @@
 // src/services/solana.js
-// ✅ Version complète + corrigée (devnet) + compatible navigateur
-// - pas de double import PublicKey
-// - Buffer polyfill explicite
-// - PDA multi-contrats via contractId (hash SHA-256 -> 32 bytes)
-// - logs utiles sur ATA + initializeEscrow
-//
-// ⚠️ IMPORTANT: pour que le multi-contrat marche VRAIMENT,
-// ton programme Anchor doit aussi utiliser les mêmes seeds (avec contractId).
-
 import { AnchorProvider, BN, Program } from "@coral-xyz/anchor"
+import { Buffer } from "buffer"
 import {
   Connection,
   PublicKey,
@@ -17,7 +9,6 @@ import {
   SYSVAR_RENT_PUBKEY,
   clusterApiUrl,
 } from "@solana/web3.js"
-import { Buffer } from "buffer"
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
@@ -27,6 +18,9 @@ import {
   createAssociatedTokenAccountInstruction,
 } from "@solana/spl-token"
 
+// --------------------------------------------------
+// CONFIG
+// --------------------------------------------------
 const DEFAULT_RPC =
   import.meta.env.VITE_SOLANA_RPC ||
   clusterApiUrl((import.meta.env.VITE_SOLANA_NETWORK || "devnet").toLowerCase())
@@ -34,9 +28,9 @@ const DEFAULT_RPC =
 export const DEFAULT_CHAIN =
   import.meta.env.VITE_SOLANA_CHAIN || "solana-devnet"
 
-/**
- * Récupère le provider Phantom dans la fenêtre
- */
+// --------------------------------------------------
+// PHANTOM
+// --------------------------------------------------
 export const getPhantomProvider = () => {
   if (typeof window === "undefined") return null
   const sol = window.solana
@@ -47,9 +41,6 @@ export const getPhantomProvider = () => {
   return null
 }
 
-/**
- * Connecte Phantom (demande au wallet)
- */
 export const connectPhantom = async () => {
   const provider = getPhantomProvider()
   if (!provider) throw new Error("Phantom non détecté.")
@@ -57,51 +48,134 @@ export const connectPhantom = async () => {
   return { provider, publicKey: res.publicKey }
 }
 
-/**
- * Connexion RPC Solana
- */
+// --------------------------------------------------
+// RPC / PROVIDER
+// --------------------------------------------------
 export const getConnection = (rpcUrl = DEFAULT_RPC) =>
   new Connection(rpcUrl, "confirmed")
 
-/**
- * Provider Anchor à partir d'une connexion + wallet Phantom
- */
 export const getAnchorProvider = (connection, wallet) => {
-  if (!wallet) throw new Error("Wallet Phantom requis pour Anchor.")
-  return new AnchorProvider(connection, wallet, {
-    commitment: "confirmed",
+  if (!wallet?.publicKey) throw new Error("Wallet requis pour Anchor.")
+  return new AnchorProvider(connection, wallet, { commitment: "confirmed" })
+}
+
+export const toPublicKey = (v) => (v instanceof PublicKey ? v : new PublicKey(v))
+
+// --------------------------------------------------
+// IDL NORMALIZATION (FIX 'reading size')
+// --------------------------------------------------
+/**
+ * Anchor JS en browser peut planter si:
+ * - accounts[].type absent
+ * - instructions[].accounts uses writable/signer au lieu de isMut/isSigner
+ *
+ * On reconstruit un IDL "legacy-compatible".
+ */
+export const normalizeIdlForAnchor = (raw) => {
+  const name = raw?.name ?? raw?.metadata?.name ?? "escrow_program"
+  const version = raw?.version ?? raw?.metadata?.version ?? "0.1.0"
+
+  const types = Array.isArray(raw?.types) ? raw.types : []
+  const accounts = Array.isArray(raw?.accounts) ? raw.accounts : []
+  const instructions = Array.isArray(raw?.instructions) ? raw.instructions : []
+  const errors = Array.isArray(raw?.errors) ? raw.errors : []
+  const events = Array.isArray(raw?.events) ? raw.events : []
+
+  const typesByName = new Map(types.map((t) => [t?.name, t]))
+
+  // ✅ accounts[].type obligatoire
+  const normalizedAccounts = accounts.map((acc) => {
+    if (acc?.type) return acc
+    const typeDef = typesByName.get(acc?.name)
+    if (typeDef?.type) return { ...acc, type: typeDef.type }
+    return acc
   })
+
+  // ✅ isMut/isSigner obligatoire
+  const normalizedInstructions = instructions.map((ix) => ({
+    ...ix,
+    accounts: (ix.accounts || []).map((a) => ({
+      ...a,
+      isMut: a.isMut ?? a.writable ?? false,
+      isSigner: a.isSigner ?? a.signer ?? false,
+    })),
+  }))
+
+  return {
+    ...raw,
+    name,
+    version,
+    accounts: normalizedAccounts,
+    instructions: normalizedInstructions,
+    types,
+    errors,
+    events,
+  }
 }
 
 /**
- * Charge le programme Anchor
- * (Anchor 0.30+ : new Program(idl, provider))
+ * ✅ LA SEULE manière de créer Program (utilise IDL normalisé)
+ * -> c'est ICI qu'on règle ton "reading 'size'".
  */
-export const loadProgram = (idl, provider) => {
-  if (!idl) throw new Error("IDL Anchor manquante.")
-  if (!provider) throw new Error("Provider Anchor requis.")
-  return new Program(idl, provider)
+export const loadProgram = (rawIdl, programId, provider) => {
+  if (!rawIdl) throw new Error("IDL manquante.")
+  if (!programId) throw new Error("ProgramId manquant.")
+  if (!provider) throw new Error("Provider manquant.")
+
+  const idl = normalizeIdlForAnchor(rawIdl)
+
+  // debug clair
+  const dbg = (idl.accounts || []).map((a) => ({
+    name: a?.name,
+    hasType: !!a?.type,
+    kind: a?.type?.kind,
+    fields: a?.type?.fields?.length,
+  }))
+  console.log("🧩 [loadProgram] accounts normalized =", dbg)
+
+  const missing = dbg.filter((x) => !x.hasType)
+  if (missing.length) {
+    throw new Error(
+      `IDL invalide: accounts sans type: ${missing.map((m) => m.name).join(", ")}`
+    )
+  }
+
+  return new Program(idl, new PublicKey(programId), provider)
 }
 
-/**
- * Hash SHA-256 -> 32 bytes (browser-friendly)
- */
-const sha256_32 = async (input) => {
-  if (!input) return Buffer.alloc(32, 0)
-  const data = new TextEncoder().encode(String(input))
-  const hash = await crypto.subtle.digest("SHA-256", data)
-  return Buffer.from(new Uint8Array(hash)) // 32 bytes
+// --------------------------------------------------
+// CONTRACT ID
+// --------------------------------------------------
+export const isU8Array32 = (arr) =>
+  Array.isArray(arr) &&
+  arr.length === 32 &&
+  arr.every((n) => Number.isInteger(n) && n >= 0 && n <= 255)
+
+export const contractId32ToBuffer = (contractId32) => {
+  if (!isU8Array32(contractId32)) {
+    throw new Error("contractId32 doit être un Array(32) u8.")
+  }
+  return Buffer.from(Uint8Array.from(contractId32))
 }
 
-/**
- * PDA de l'escrow + vault dérivés par le programme
- * ✅ Multi-contrats: contractId optionnel (seed 32 bytes)
- */
-export const findEscrowPdas = async (programId, initializer, worker) => {
-  const programPk = new PublicKey(programId)
+export const makeContractId32 = () => {
+  const bytes = new Uint8Array(32)
+  crypto.getRandomValues(bytes)
+  return Array.from(bytes)
+}
+
+// --------------------------------------------------
+// PDA MULTI-CONTRATS
+// --------------------------------------------------
+export const findEscrowPdas = async (programId, initializer, worker, contractId32) => {
+  const programPk = toPublicKey(programId)
+  const initializerPk = toPublicKey(initializer)
+  const workerPk = toPublicKey(worker)
+
+  const contractSeed = contractId32ToBuffer(contractId32)
 
   const [escrowStatePda] = PublicKey.findProgramAddressSync(
-    [Buffer.from("escrow"), initializer.toBuffer(), worker.toBuffer()],
+    [Buffer.from("escrow"), initializerPk.toBuffer(), workerPk.toBuffer(), contractSeed],
     programPk
   )
 
@@ -113,43 +187,26 @@ export const findEscrowPdas = async (programId, initializer, worker) => {
   return { escrowStatePda, vaultPda }
 }
 
-/**
- * Lit le solde SPL (USDC ou autre) pour un wallet (en UI amount)
- */
+// --------------------------------------------------
+// SPL BALANCE
+// --------------------------------------------------
 export const getUsdcBalance = async ({ wallet, mintAddress, connection }) => {
-  const mint = new PublicKey(mintAddress)
-  const ata = await getAssociatedTokenAddress(mint, wallet, false)
+  const walletPk = toPublicKey(wallet)
+  const mintPk = toPublicKey(mintAddress)
+
+  const ata = await getAssociatedTokenAddress(mintPk, walletPk, false)
   const info = await getAccount(connection, ata).catch(() => null)
   if (!info) return { amount: 0, ata }
-  const mintInfo = await getMint(connection, mint)
+
+  const mintInfo = await getMint(connection, mintPk)
   const decimals = mintInfo.decimals ?? 6
   const balance = Number(info.amount) / 10 ** decimals
   return { amount: balance, ata }
 }
 
-const toLamports = (amount, decimals = 6) =>
-  new BN(Math.floor(Number(amount) * 10 ** decimals))
-
-/**
- * ✅ FIX CRITIQUE : on NE DOIT PAS détacher program.methods[xxx]
- * -> on bind pour conserver le contexte `this` attendu par Anchor.
- */
-const resolveMethod = (program, names) => {
-  const candidates = Array.isArray(names) ? names : [names]
-  const methodName = candidates.find((name) => program?.methods?.[name])
-  if (!methodName) {
-    throw new Error(`Méthode ${candidates.join(" / ")} absente de l'IDL.`)
-  }
-
-  const fn = program.methods[methodName].bind(program.methods)
-  return { method: fn, name: methodName }
-}
-
-/**
- * Crée l'ATA si absent.
- * payer = wallet qui signe / paye le rent
- * owner = owner du token account
- */
+// --------------------------------------------------
+// ATA
+// --------------------------------------------------
 export const getOrCreateAta = async ({
   connection,
   provider,
@@ -158,43 +215,26 @@ export const getOrCreateAta = async ({
   mint,
   allowOwnerOffCurve = false,
 }) => {
+  const payerPk = toPublicKey(payer)
+  const ownerPk = toPublicKey(owner)
+  const mintPk = toPublicKey(mint)
+
   const ata = await getAssociatedTokenAddress(
-    mint,
-    owner,
+    mintPk,
+    ownerPk,
     allowOwnerOffCurve,
     TOKEN_PROGRAM_ID,
     ASSOCIATED_TOKEN_PROGRAM_ID
   )
 
-  console.log("🔍 [getOrCreateAta]")
-  console.log("payer =", payer?.toBase58?.() ?? payer)
-  console.log("owner =", owner?.toBase58?.() ?? owner)
-  console.log("mint  =", mint?.toBase58?.() ?? mint)
-  console.log("ata   =", ata.toBase58())
-
-  let info = null
-  try {
-    info = await connection.getAccountInfo(ata)
-    console.log(
-      "🔎 ata exists =",
-      !!info,
-      "lamports =",
-      info?.lamports,
-      "owner =",
-      info?.owner?.toBase58?.()
-    )
-  } catch (e) {
-    console.error("❌ getAccountInfo failed for ata:", ata.toBase58(), e)
-    throw e
-  }
-
+  const info = await connection.getAccountInfo(ata).catch(() => null)
   if (info) return { ata, created: false }
 
   const ix = createAssociatedTokenAccountInstruction(
-    payer,
+    payerPk,
     ata,
-    owner,
-    mint,
+    ownerPk,
+    mintPk,
     TOKEN_PROGRAM_ID,
     ASSOCIATED_TOKEN_PROGRAM_ID
   )
@@ -204,18 +244,26 @@ export const getOrCreateAta = async ({
   return { ata, created: true, signature }
 }
 
-/**
- * initializeEscrow
- * ✅ amountUsdc peut être:
- * - un BN déjà en base units (recommandé)
- * - ou un nombre UI (fallback -> 6 décimales)
- *
- * ⚠️ admin1/admin2 sont passés en args de méthode (selon ton IDL)
- * Les accounts ajoutés ne le sont que si l’IDL les attend.
- */
+// --------------------------------------------------
+// METHOD RESOLVER (snake_case vs camelCase)
+// --------------------------------------------------
+const resolveMethod = (program, names) => {
+  const candidates = Array.isArray(names) ? names : [names]
+  const methodName = candidates.find((name) => program?.methods?.[name])
+  if (!methodName) {
+    throw new Error(`Méthode absente de l'IDL: ${candidates.join(" / ")}`)
+  }
+  return program.methods[methodName].bind(program.methods)
+}
+
+// --------------------------------------------------
+// INSTRUCTIONS HELPERS (exports attendus par tes modals)
+// --------------------------------------------------
 export const initializeEscrow = async ({
   program,
-  amountUsdc,
+  contractId32,
+  amountBaseUnitsBN,
+  feeBps = 500,
   initializer,
   worker,
   admin1,
@@ -224,169 +272,91 @@ export const initializeEscrow = async ({
   vaultPda,
   usdcMint,
   initializerUsdcAta,
-  feeWallet, // optionnel si IDL l'attend
-  feeBps = 500,
 }) => {
-  const { method, name } = resolveMethod(program, [
-    "initializeEscrow",
-    "initialize_escrow",
-  ])
+  const method = resolveMethod(program, ["initializeEscrow", "initialize_escrow"])
 
-  const amount = BN.isBN(amountUsdc) ? amountUsdc : toLamports(amountUsdc, 6)
+  if (!isU8Array32(contractId32)) throw new Error("contractId32 invalide (Array(32) u8)")
 
-  // Liste des accounts attendus par l’IDL
-  const ix = program.idl.instructions.find((i) => i.name === name)
-  const expected = (ix?.accounts || []).map((a) => a.name)
-
-  // ✅ Anchor exige des PublicKey (pas des strings)
-  const initializerPk =
-    initializer instanceof PublicKey ? initializer : new PublicKey(initializer)
-
-  const workerPk = worker instanceof PublicKey ? worker : new PublicKey(worker)
-
-  const escrowStatePk =
-    escrowStatePda instanceof PublicKey
-      ? escrowStatePda
-      : new PublicKey(escrowStatePda)
-
-  const vaultPk =
-    vaultPda instanceof PublicKey ? vaultPda : new PublicKey(vaultPda)
-
-  const initializerUsdcAtaPk =
-    initializerUsdcAta instanceof PublicKey
-      ? initializerUsdcAta
-      : new PublicKey(initializerUsdcAta)
-
-  const usdcMintPk =
-    usdcMint instanceof PublicKey ? usdcMint : new PublicKey(usdcMint)
-
-  const admin1Pk =
-    admin1 instanceof PublicKey ? admin1 : new PublicKey(admin1)
-
-  const admin2Pk =
-    admin2 instanceof PublicKey ? admin2 : new PublicKey(admin2)
-
-  const feeWalletPk =
-    feeWallet && !(feeWallet instanceof PublicKey)
-      ? new PublicKey(feeWallet)
-      : feeWallet
-
-  const accounts = {
-    initializer: initializerPk,
-    worker: workerPk,
-    escrowState: escrowStatePk,
-    vault: vaultPk,
-    initializerUsdcAta: initializerUsdcAtaPk,
-    usdcMint: usdcMintPk,
-    tokenProgram: TOKEN_PROGRAM_ID,
-    systemProgram: SystemProgram.programId,
-    rent: SYSVAR_RENT_PUBKEY,
-  }
-
-  // Ajoute seulement si l’IDL le demande
-  if (expected.includes("admin1")) accounts.admin1 = admin1Pk
-  if (expected.includes("admin2")) accounts.admin2 = admin2Pk
-  if (expected.includes("feeWallet") && feeWalletPk) accounts.feeWallet = feeWalletPk
-  if (expected.includes("associatedTokenProgram")) {
-    accounts.associatedTokenProgram = ASSOCIATED_TOKEN_PROGRAM_ID
-  }
-
-  // 🔥 Dé-proxy l'objet (au cas où) -> objet "plain"
-  const plainAccounts = Object.fromEntries(Object.entries(accounts))
-
-  console.log("✅ [initializeEscrow] method =", name)
-  console.log("✅ [initializeEscrow] expected accounts =", expected)
-  console.log("✅ [initializeEscrow] provided accounts keys =", Object.keys(plainAccounts))
-  console.log("✅ [initializeEscrow] amount baseUnits =", amount.toString(), "feeBps =", feeBps)
-  console.log(
-    "🧪 initializer PK =",
-    plainAccounts.initializer?.toBase58?.(),
-    "type =",
-    plainAccounts.initializer?.constructor?.name
-  )
-
-  // Args selon ton appel actuel: (amount, feeBps, admin1, admin2)
-  return method(amount, feeBps, admin1Pk, admin2Pk)
-    .accounts(plainAccounts)
+  return method(contractId32, amountBaseUnitsBN, feeBps, toPublicKey(admin1), toPublicKey(admin2))
+    .accounts({
+      initializer: toPublicKey(initializer),
+      worker: toPublicKey(worker),
+      escrowState: toPublicKey(escrowStatePda),
+      vault: toPublicKey(vaultPda),
+      initializerUsdcAta: toPublicKey(initializerUsdcAta),
+      usdcMint: toPublicKey(usdcMint),
+      tokenProgram: TOKEN_PROGRAM_ID,
+      systemProgram: SystemProgram.programId,
+      rent: SYSVAR_RENT_PUBKEY,
+    })
     .rpc()
 }
 
 export const acceptEscrow = async ({ program, worker, escrowStatePda }) => {
-  const { method } = resolveMethod(program, ["workerAccept", "worker_accept"])
+  const method = resolveMethod(program, ["workerAccept", "worker_accept"])
   return method()
     .accounts({
-      worker,
-      escrowState: escrowStatePda,
+      worker: toPublicKey(worker),
+      escrowState: toPublicKey(escrowStatePda),
     })
     .rpc()
 }
 
-export const markDoneEmployer = async ({ program, initializer, escrowStatePda }) => {
-  const { method } = resolveMethod(program, [
-    "employerApproveCompletion",
-    "employer_approve_completion",
-  ])
+export const employerApproveCompletion = async ({ program, initializer, escrowStatePda }) => {
+  const method = resolveMethod(program, ["employerApproveCompletion", "employer_approve_completion"])
   return method()
     .accounts({
-      initializer,
-      escrowState: escrowStatePda,
+      initializer: toPublicKey(initializer),
+      escrowState: toPublicKey(escrowStatePda),
     })
     .rpc()
 }
 
-export const markDoneFreelancer = async ({ program, worker, escrowStatePda }) => {
-  const { method } = resolveMethod(program, [
-    "workerApproveCompletion",
-    "worker_approve_completion",
-  ])
+export const workerApproveCompletion = async ({ program, worker, escrowStatePda }) => {
+  const method = resolveMethod(program, ["workerApproveCompletion", "worker_approve_completion"])
   return method()
     .accounts({
-      worker,
-      escrowState: escrowStatePda,
-    })
-    .rpc()
-}
-
-export const releaseEscrow = async ({
-  program,
-  caller,
-  escrowStatePda,
-  vaultPda,
-  workerUsdcAta,
-  adminFeeAccount,
-}) => {
-  const { method } = resolveMethod(program, [
-    "releaseIfBothApproved",
-    "release_if_both_approved",
-  ])
-  return method()
-    .accounts({
-      caller,
-      escrowState: escrowStatePda,
-      vault: vaultPda,
-      workerUsdcAta,
-      adminFeeAccount,
-      tokenProgram: TOKEN_PROGRAM_ID,
+      worker: toPublicKey(worker),
+      escrowState: toPublicKey(escrowStatePda),
     })
     .rpc()
 }
 
 export const openDispute = async ({ program, signer, escrowStatePda }) => {
-  const { method } = resolveMethod(program, ["openDispute", "open_dispute"])
+  const method = resolveMethod(program, ["openDispute", "open_dispute"])
   return method()
     .accounts({
-      signer,
-      escrowState: escrowStatePda,
+      signer: toPublicKey(signer),
+      escrowState: toPublicKey(escrowStatePda),
     })
     .rpc()
 }
 
 export const adminVote = async ({ program, admin, escrowStatePda, voteForWorker }) => {
-  const { method } = resolveMethod(program, ["adminVote", "admin_vote"])
-  return method(voteForWorker)
+  const method = resolveMethod(program, ["adminVote", "admin_vote"])
+  return method(!!voteForWorker)
     .accounts({
-      admin,
-      escrowState: escrowStatePda,
+      admin: toPublicKey(admin),
+      escrowState: toPublicKey(escrowStatePda),
+    })
+    .rpc()
+}
+
+export const refundToEmployer = async ({
+  program,
+  admin,
+  escrowStatePda,
+  vaultPda,
+  initializerUsdcAta,
+}) => {
+  const method = resolveMethod(program, ["refundToEmployer", "refund_to_employer"])
+  return method()
+    .accounts({
+      admin: toPublicKey(admin),
+      escrowState: toPublicKey(escrowStatePda),
+      vault: toPublicKey(vaultPda),
+      initializerUsdcAta: toPublicKey(initializerUsdcAta),
+      tokenProgram: TOKEN_PROGRAM_ID,
     })
     .rpc()
 }
@@ -399,39 +369,35 @@ export const releaseToWorker = async ({
   workerUsdcAta,
   adminFeeAccount,
 }) => {
-  const { method } = resolveMethod(program, [
-    "releaseToWorker",
-    "release_to_worker",
-  ])
+  const method = resolveMethod(program, ["releaseToWorker", "release_to_worker"])
   return method()
     .accounts({
-      admin,
-      escrowState: escrowStatePda,
-      vault: vaultPda,
-      workerUsdcAta,
-      adminFeeAccount,
+      admin: toPublicKey(admin),
+      escrowState: toPublicKey(escrowStatePda),
+      vault: toPublicKey(vaultPda),
+      workerUsdcAta: toPublicKey(workerUsdcAta),
+      adminFeeAccount: toPublicKey(adminFeeAccount),
       tokenProgram: TOKEN_PROGRAM_ID,
     })
     .rpc()
 }
 
-export const refundToEmployer = async ({
+export const releaseIfBothApproved = async ({
   program,
-  admin,
+  caller,
   escrowStatePda,
   vaultPda,
-  initializerUsdcAta,
+  workerUsdcAta,
+  adminFeeAccount,
 }) => {
-  const { method } = resolveMethod(program, [
-    "refundToEmployer",
-    "refund_to_employer",
-  ])
+  const method = resolveMethod(program, ["releaseIfBothApproved", "release_if_both_approved"])
   return method()
     .accounts({
-      admin,
-      escrowState: escrowStatePda,
-      vault: vaultPda,
-      initializerUsdcAta,
+      caller: toPublicKey(caller),
+      escrowState: toPublicKey(escrowStatePda),
+      vault: toPublicKey(vaultPda),
+      workerUsdcAta: toPublicKey(workerUsdcAta),
+      adminFeeAccount: toPublicKey(adminFeeAccount),
       tokenProgram: TOKEN_PROGRAM_ID,
     })
     .rpc()

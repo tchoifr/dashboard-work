@@ -1,14 +1,16 @@
+<!-- src/components/ContractCreationModal.vue -->
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue"
 import flatpickr from "flatpickr"
 import "flatpickr/dist/themes/dark.css"
-import { PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY } from "@solana/web3.js"
-import api from "../services/api"
-import idl from "../idl/escrow_program.json"
-import { useAuthStore } from "../store/auth"
+import { loadProgram } from "../services/solana"
+import { PublicKey } from "@solana/web3.js"
+import { getMint } from "@solana/spl-token"
 import BN from "bn.js"
-import { getMint, TOKEN_PROGRAM_ID } from "@solana/spl-token"
-import { Program } from "@coral-xyz/anchor"
+
+import api from "../services/api"
+import rawIdl from "../idl/escrow_program.json"
+import { useAuthStore } from "../store/auth"
 
 import {
   connectPhantom,
@@ -18,7 +20,7 @@ import {
   getUsdcBalance,
   getOrCreateAta,
   findEscrowPdas,
-  // initializeEscrow, // ✅ ON NE L’UTILISE PLUS ICI
+  initializeEscrow,
 } from "../services/solana"
 
 // --------------------------------------------------
@@ -26,7 +28,6 @@ import {
 // --------------------------------------------------
 const props = defineProps({
   employers: Array,
-  freelancerWallet: String,
   programId: String,
   usdcMint: String,
   network: String,
@@ -40,34 +41,19 @@ const emit = defineEmits(["close", "created"])
 const auth = useAuthStore()
 
 // --------------------------------------------------
-// ADMIN KEYS
-// --------------------------------------------------
-const admin1Key = computed(() =>
-  props.admin1 && props.admin1.length > 0
-    ? new PublicKey(props.admin1)
-    : SystemProgram.programId
-)
-
-const admin2Key = computed(() =>
-  props.admin2 && props.admin2.length > 0
-    ? new PublicKey(props.admin2)
-    : SystemProgram.programId
-)
-
-// --------------------------------------------------
-// FORMULAIRE
+// FORM
 // --------------------------------------------------
 const form = reactive({
   title: "",
   description: "",
   checkpoints: "",
   timeline: { start: "", end: "" },
-  employer: null,
+  employer: null, // client sélectionné (worker)
   amountUsdc: "",
 })
 
 // --------------------------------------------------
-// PICKER DATES
+// PICKERS
 // --------------------------------------------------
 const startInput = ref(null)
 const endInput = ref(null)
@@ -75,18 +61,15 @@ let startPicker = null
 let endPicker = null
 
 // --------------------------------------------------
-// STATE UI
+// UI STATE
 // --------------------------------------------------
 const loading = ref(false)
 const txStatus = ref("")
 const usdcBalance = ref(0)
-const initializerAta = ref(null)
 const walletAddress = ref("")
 
 const usdcMintMissing = computed(() => !props.usdcMint)
 const programIdMissing = computed(() => !props.programId)
-const phantomReady = computed(() => !!walletAddress.value)
-const todayIso = computed(() => new Date().toISOString().split("T")[0])
 
 const canSubmit = computed(() => {
   const amount = Number(form.amountUsdc)
@@ -136,6 +119,59 @@ async function ensurePhantom() {
   return { phantom, publicKey }
 }
 
+/**
+ * ✅ IDL "spec" -> IDL "legacy" pour Anchor JS
+ * Fix réel pour l'erreur: Cannot read properties of undefined (reading 'size')
+ *
+ * Anchor JS veut:
+ * - accounts[].type (struct) présent
+ * - instructions[].accounts[].isMut/isSigner (legacy)
+ */
+function normalizeIdlForAnchor(raw) {
+  const name = raw?.name ?? raw?.metadata?.name ?? "escrow_program"
+  const version = raw?.version ?? raw?.metadata?.version ?? "0.1.0"
+
+  const types = Array.isArray(raw?.types) ? raw.types : []
+  const accounts = Array.isArray(raw?.accounts) ? raw.accounts : []
+  const instructions = Array.isArray(raw?.instructions) ? raw.instructions : []
+
+  const typesByName = new Map(types.map((t) => [t?.name, t]))
+
+  // accounts[].type obligatoire
+  const normalizedAccounts = accounts.map((acc) => {
+    if (acc?.type) return acc
+    const typeDef = typesByName.get(acc?.name)
+    if (typeDef?.type) return { ...acc, type: typeDef.type }
+    return acc
+  })
+
+  // instructions[].accounts => isMut / isSigner
+  const normalizedInstructions = instructions.map((ix) => ({
+    ...ix,
+    accounts: (ix.accounts || []).map((a) => ({
+      ...a,
+      isMut: a.isMut ?? a.writable ?? false,
+      isSigner: a.isSigner ?? a.signer ?? false,
+    })),
+  }))
+
+  return {
+    ...raw,
+    name,
+    version,
+    accounts: normalizedAccounts,
+    instructions: normalizedInstructions,
+    types,
+  }
+}
+
+// contract_id attendu par l’IDL: [u8; 32]
+function makeContractId32() {
+  const bytes = new Uint8Array(32)
+  crypto.getRandomValues(bytes)
+  return Array.from(bytes)
+}
+
 // --------------------------------------------------
 // SOLDE USDC
 // --------------------------------------------------
@@ -147,20 +183,6 @@ async function loadUsdcBalance() {
     const { publicKey } = await ensurePhantom()
     if (!publicKey) return
 
-    try {
-      new PublicKey(props.programId)
-    } catch (error) {
-      console.error("ProgramId invalide:", props.programId, error)
-      return alert("ProgramId invalide. Contacte un admin.")
-    }
-
-    try {
-      new PublicKey(props.usdcMint)
-    } catch (error) {
-      console.error("USDC mint invalide:", props.usdcMint, error)
-      return alert("USDC mint invalide.")
-    }
-
     const connection = getConnection(props.rpcUrl)
     txStatus.value = "Lecture solde USDC..."
 
@@ -170,7 +192,6 @@ async function loadUsdcBalance() {
       connection,
     })
 
-    initializerAta.value = balanceInfo.ata
     usdcBalance.value = balanceInfo.amount
     txStatus.value = ""
   } catch (e) {
@@ -181,9 +202,11 @@ async function loadUsdcBalance() {
 }
 
 // --------------------------------------------------
-// SUBMIT FORM + TX SOLANA
+// SUBMIT
 // --------------------------------------------------
 async function submitForm() {
+  console.log("🟡 submitForm START")
+
   if (!canSubmit.value) return
 
   try {
@@ -193,25 +216,31 @@ async function submitForm() {
     const { phantom, publicKey } = await ensurePhantom()
     if (!publicKey) return alert("Wallet requis.")
 
-    if (
-      !props.programId ||
-      props.programId === SystemProgram.programId.toBase58()
-    ) {
-      return alert("ProgramId invalide. Contacte un admin.")
-    }
-
-    const employerWallet = publicKey.toBase58()
     const employerUuid = auth.user?.uuid
     if (!employerUuid) return alert("Utilisateur employeur introuvable.")
+
+    const employerWallet = publicKey.toBase58()
 
     const freelancerWallet =
       form.employer?.walletAddress || form.employer?.wallet_address
     if (!freelancerWallet) return alert("Wallet du freelance manquant.")
+    const workerPk = new PublicKey(freelancerWallet)
 
-    // ------------------------------------------
-    // Connection / Provider / Program
-    // ✅ wallet wrapper Anchor-compatible
-    // ------------------------------------------
+    // -----------------------
+    // IDL mismatch check
+    // -----------------------
+    if (rawIdl?.address && rawIdl.address !== props.programId) {
+      alert(
+        "IDL et ProgramId ne correspondent pas.\n" +
+          `IDL: ${rawIdl.address}\n` +
+          `Program: ${props.programId}`
+      )
+      return
+    }
+
+    // -----------------------
+    // Provider / Program
+    // -----------------------
     const connection = getConnection(props.rpcUrl)
 
     const wallet = {
@@ -219,30 +248,30 @@ async function submitForm() {
       signTransaction: phantom.signTransaction.bind(phantom),
       signAllTransactions: phantom.signAllTransactions.bind(phantom),
     }
-
     const provider = getAnchorProvider(connection, wallet)
 
-    // Debug config
-    console.log("✅ programId =", props.programId)
-    console.log("✅ usdcMint =", props.usdcMint)
-    console.log("✅ feeWallet =", props.feeWallet)
+    console.log("🧪 IDL address =", rawIdl?.address)
+    console.log("🧪 IDL accounts =", rawIdl?.accounts?.map((a) => a.name))
+    console.log("🧪 IDL types =", rawIdl?.types?.map((t) => t.name))
+    console.log("🧪 IDL instructions =", rawIdl?.instructions?.map((i) => i.name))
+    console.log("🟦 before new Program")
 
-    // Debug wallet
-    console.log("👛 provider.wallet =", provider.wallet.publicKey.toBase58())
-    console.log("👛 ensurePhantom publicKey =", publicKey.toBase58())
+const program = loadProgram(rawIdl, props.programId, provider)
 
-    // ✅ Program Anchor avec programId runtime (PAS idl.address)
-    const program = new Program(idl, new PublicKey(props.programId), provider)
-    console.log("🧪 program.programId =", program.programId.toBase58())
-    console.log("🧪 idl.address =", idl.address)
+    console.log("🟩 after new Program", program.programId.toBase58())
 
-    // Mint decimals (important)
+    // -----------------------
+    // Mint decimals
+    // -----------------------
     const mintPk = new PublicKey(props.usdcMint)
     const mintInfo = await getMint(connection, mintPk)
     const decimals = mintInfo.decimals
-    console.log("✅ mint decimals =", decimals)
 
-    // Amount: UI -> base units (u64)
+    // -----------------------
+    // Args init
+    // -----------------------
+    const contractId32 = makeContractId32()
+
     const amountUsdcUi = Number(form.amountUsdc)
     if (!Number.isFinite(amountUsdcUi) || amountUsdcUi <= 0) {
       return alert("Montant invalide")
@@ -250,160 +279,88 @@ async function submitForm() {
 
     const amountBaseUnits = new BN(Math.round(amountUsdcUi * 10 ** decimals))
 
-    console.log(
-      "✅ amountUi =",
-      amountUsdcUi,
-      "=> baseUnits =",
-      amountBaseUnits.toString()
-    )
-
-    // Safety: don't exceed displayed balance
     if (amountUsdcUi > usdcBalance.value) {
       return alert(`Solde insuffisant: ${usdcBalance.value} USDC dispo`)
     }
 
-    const workerPk = new PublicKey(freelancerWallet)
+    // admins -> prend config si présente, sinon fallback wallet connecté
+    const admin1Pk = props.admin1 ? new PublicKey(props.admin1) : publicKey
+    const admin2Pk = props.admin2 ? new PublicKey(props.admin2) : publicKey
 
-    // 🔧 MODE SIMPLIFIÉ : admins = employer
-    const admin1Pk = publicKey
-    const admin2Pk = publicKey
-
-    const contractId = crypto.randomUUID()
-    console.log("✅ contractId =", contractId)
-
-    // PDAs
+    // -----------------------
+    // PDAs (multi-contrat)
+    // -----------------------
     const { escrowStatePda, vaultPda } = await findEscrowPdas(
       props.programId,
       publicKey,
-      workerPk
+      workerPk,
+      contractId32
     )
 
-    // ✅ check existence
-    const escrowInfo = await connection.getAccountInfo(escrowStatePda)
-    if (escrowInfo) {
-      console.warn(
-        "⚠️ EscrowState PDA already exists:",
-        escrowStatePda.toBase58()
-      )
-      alert(
-        "Un escrow existe déjà pour ce worker. Choisis un autre worker ou supprime/reset l’escrow existant."
-      )
-      return
-    }
+    // -----------------------
+    // ATA initializer
+    // -----------------------
+    const { ata: initializerUsdcAta } = await getOrCreateAta({
+      connection,
+      provider,
+      payer: provider.wallet.publicKey,
+      owner: publicKey,
+      mint: mintPk,
+    })
 
-    // ATA of initializer (Phantom)
-    let initializerUsdcAta
-
-    try {
-      console.log("➡️ calling getOrCreateAta ...")
-      const res = await getOrCreateAta({
-        connection,
-        provider,
-        payer: provider.wallet.publicKey,
-        owner: publicKey,
-        mint: mintPk,
-      })
-      initializerUsdcAta = res.ata
-      console.log("✅ getOrCreateAta result =", {
-        ata: initializerUsdcAta.toBase58(),
-        created: res.created,
-        sig: res.signature,
-      })
-    } catch (e) {
-      console.error("❌ getOrCreateAta FAILED:", e)
-      alert("getOrCreateAta FAILED: " + (e?.message || e))
-      throw e
-    }
-
-    console.log("✅ initializerUsdcAta =", initializerUsdcAta.toBase58())
-    const bal = await connection.getTokenAccountBalance(initializerUsdcAta)
-    console.log("✅ ATA uiAmount =", bal.value.uiAmountString)
-
-    // Debug accounts
-    console.log("initializer =", publicKey.toBase58())
-    console.log("worker =", workerPk.toBase58())
-    console.log("admin1 =", admin1Pk.toBase58())
-    console.log("admin2 =", admin2Pk.toBase58())
-    console.log("escrowStatePda =", escrowStatePda.toBase58())
-    console.log("vaultPda =", vaultPda.toBase58())
-    console.log("initializerUsdcAta =", initializerUsdcAta.toBase58())
-
-    // Checkpoints
-    const checkpointsArray = form.checkpoints
-      ? form.checkpoints
-          .split("\n")
-          .map((c) => c.trim())
-          .filter(Boolean)
-      : []
-
-    // --------------------------------------------------
-    // ✅ ON-CHAIN INIT (appel Anchor DIRECT, sans helper)
-    // --------------------------------------------------
+    // -----------------------
+    // On-chain init via helper
+    // -----------------------
     txStatus.value = "Signature initialize_escrow..."
 
-    const signature = await program.methods
-      .initializeEscrow(amountBaseUnits, 500, admin1Pk, admin2Pk)
-      .accounts({
-        initializer: publicKey,
-        worker: workerPk,
-        escrowState: escrowStatePda,
-        vault: vaultPda,
-        initializerUsdcAta: initializerUsdcAta,
-        usdcMint: mintPk,
-        tokenProgram: TOKEN_PROGRAM_ID,
-        systemProgram: SystemProgram.programId,
-        rent: SYSVAR_RENT_PUBKEY,
-      })
-      .rpc()
+    const sig = await initializeEscrow({
+      program,
+      contractId32,
+      amountBaseUnitsBN: amountBaseUnits,
+      feeBps: 500,
+      initializer: publicKey,
+      worker: workerPk,
+      admin1: admin1Pk,
+      admin2: admin2Pk,
+      escrowStatePda,
+      vaultPda,
+      usdcMint: mintPk,
+      initializerUsdcAta,
+    })
 
-    console.log("✅ initializeEscrow signature =", signature)
-
-    // 2) Backend (store UI amount)
+    // -----------------------
+    // Backend save
+    // -----------------------
     txStatus.value = "Creation du contrat..."
+
+    const checkpointsArray = form.checkpoints
+      ? form.checkpoints.split("\n").map((c) => c.trim()).filter(Boolean)
+      : []
+
     const res = await api.post("/contracts", {
       title: form.title,
       description: form.description,
       checkpoints: checkpointsArray,
-      timeline: {
-        start: form.timeline.start,
-        end: form.timeline.end,
-      },
+      timeline: { start: form.timeline.start, end: form.timeline.end },
       amountUsdc: amountUsdcUi,
       employerUuid,
       employerWallet,
-      freelancerWallet,
-      txSig: signature,
+      freelancerWallet: workerPk.toBase58(),
+      txSig: sig,
       escrowStatePda: escrowStatePda.toBase58(),
       vaultPda: vaultPda.toBase58(),
       usdcMint: props.usdcMint,
       programId: props.programId,
       feeWallet: props.feeWallet,
       chain: props.network || "solana-devnet",
+      contractId32,
     })
 
     txStatus.value = "Contrat cree."
     emit("created", res.data)
   } catch (err) {
     console.error("❌ Create contract error:", err)
-
-    const logs =
-      (await err?.getLogs?.().catch(() => null)) ||
-      err?.logs ||
-      err?.transactionLogs ||
-      null
-
-    if (logs && Array.isArray(logs)) {
-      console.error("🔴 TX LOGS FULL ↓↓↓")
-      console.error(logs.join("\n"))
-    } else {
-      console.error("🔴 TX LOGS FULL: (aucun log dispo)")
-    }
-
-    alert(
-      "Transaction échouée.\n" +
-        "👉 Regarde la console (TX LOGS FULL).\n" +
-        (err?.message || "")
-    )
+    alert("Transaction échouée.\n👉 Regarde la console.\n" + (err?.message || ""))
   } finally {
     loading.value = false
   }
@@ -566,10 +523,6 @@ select {
   color: #eae7ff;
 }
 
-/* ================================================
-   🟣 TON STYLE ORIGINAL COMPLET (RESTAURÉ)
-   ================================================ */
-
 .modal {
   width: min(640px, 100%);
   background: radial-gradient(circle at 20% 20%, rgba(120, 90, 255, 0.15), transparent 45%), rgba(6, 10, 24, 0.95);
@@ -645,8 +598,7 @@ h3 {
 }
 
 .field input,
-.field textarea,
-.date-input {
+.field textarea {
   border-radius: 12px;
   border: 1px solid rgba(120, 90, 255, 0.28);
   background: rgba(255, 255, 255, 0.04);
