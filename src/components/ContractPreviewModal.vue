@@ -2,7 +2,6 @@
 <script setup>
 import { computed, ref } from "vue"
 import { PublicKey } from "@solana/web3.js"
-import { Program } from "@coral-xyz/anchor"
 
 import api from "../services/api"
 import rawIdl from "../idl/escrow_program.json"
@@ -16,6 +15,7 @@ import {
   getConnection,
   getOrCreateAta,
   getPhantomProvider,
+  loadProgram,
   employerApproveCompletion,
   workerApproveCompletion,
   openDispute,
@@ -133,8 +133,7 @@ const getProgramContext = async ({ phantom, publicKey }) => {
   }
   const provider = getAnchorProvider(connection, wallet)
 
-  const idl = normalizeIdlForAnchor(rawIdl)
-  const program = new Program(idl, new PublicKey(programId.value), provider)
+  const program = loadProgram(rawIdl, programId.value, provider)
 
   return { connection, provider, program }
 }

@@ -123,6 +123,7 @@ export const loadProgram = (rawIdl, programId, provider) => {
   if (!provider) throw new Error("Provider manquant.")
 
   const idl = normalizeIdlForAnchor(rawIdl)
+  const programPk = toPublicKey(programId)
 
   // debug clair
   const dbg = (idl.accounts || []).map((a) => ({
@@ -140,7 +141,7 @@ export const loadProgram = (rawIdl, programId, provider) => {
     )
   }
 
-  return new Program(idl, new PublicKey(programId), provider)
+  return new Program({ ...idl, address: programPk.toBase58() }, provider)
 }
 
 // --------------------------------------------------
