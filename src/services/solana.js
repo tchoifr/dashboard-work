@@ -28,6 +28,19 @@ const DEFAULT_RPC =
 export const DEFAULT_CHAIN =
   import.meta.env.VITE_SOLANA_CHAIN || "solana-devnet"
 
+const GENESIS_HASHES = {
+  devnet: "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG",
+  testnet: "4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY",
+  mainnet: "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+}
+
+export const getClusterFromConnection = async (connection) => {
+  const hash = await connection.getGenesisHash()
+  const cluster =
+    Object.keys(GENESIS_HASHES).find((k) => GENESIS_HASHES[k] === hash) || null
+  return { cluster, genesisHash: hash }
+}
+
 // --------------------------------------------------
 // PHANTOM
 // --------------------------------------------------

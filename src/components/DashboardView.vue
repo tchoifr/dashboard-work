@@ -4,7 +4,13 @@ import { useAuthStore } from "../store/auth"
 import { useConversationStore } from "../store/conversations"
 import { useProfileStore } from "../store/profile"
 import api from "../services/api"
-import { DEFAULT_CHAIN } from "../services/solana"
+import {
+  DEFAULT_CHAIN,
+  getClusterFromConnection,
+  getConnection,
+  getPhantomProvider,
+  getUsdcBalance,
+} from "../services/solana"
 
 // SECTIONS
 import OverviewSection from "./OverviewSection.vue"
@@ -100,6 +106,74 @@ const programId = computed(() => walletConfig.value.programId)
 const usdcMint = computed(() => walletConfig.value.usdcMint)
 
 // ==========================
+// WALLET GUARD (SOURCE DE VERITE)
+// ==========================
+const phantomAddress = ref("")
+const phantomNetwork = ref("")
+const phantomUsdcBalance = ref(null)
+const walletGuardError = ref("")
+const walletGuardLoading = ref(false)
+
+const walletGuardOk = computed(
+  () => !walletGuardLoading.value && !walletGuardError.value && !!phantomAddress.value,
+)
+
+const refreshWalletGuard = async () => {
+  walletGuardLoading.value = true
+  walletGuardError.value = ""
+
+  try {
+    const phantom = getPhantomProvider()
+    if (!phantom) {
+      walletGuardError.value = "Phantom non détecté."
+      return
+    }
+
+    let publicKey = phantom.publicKey
+    if (!publicKey) {
+      const trusted = await phantom.connect({ onlyIfTrusted: true }).catch(() => null)
+      publicKey = trusted?.publicKey || phantom.publicKey
+    }
+
+    if (!publicKey) {
+      walletGuardError.value = "Phantom non connecté."
+      return
+    }
+
+    phantomAddress.value = publicKey.toBase58()
+
+    const expectedWallet = auth.user?.walletAddress
+    if (expectedWallet && expectedWallet !== phantomAddress.value) {
+      walletGuardError.value = "Wallet Phantom ≠ wallet du compte."
+      return
+    }
+
+    const connection = getConnection(walletConfig.value.rpcUrl)
+    const { cluster } = await getClusterFromConnection(connection).catch(() => ({
+      cluster: null,
+    }))
+    phantomNetwork.value = cluster ? `solana-${cluster}` : walletConfig.value.network
+
+    const expectedChain = (walletConfig.value.network || DEFAULT_CHAIN).toLowerCase()
+    if (expectedChain.includes("devnet") && cluster && cluster !== "devnet") {
+      walletGuardError.value = "Réseau Phantom ≠ devnet."
+      return
+    }
+
+    const balanceInfo = await getUsdcBalance({
+      wallet: phantomAddress.value,
+      mintAddress: walletConfig.value.usdcMint,
+      connection,
+    })
+    phantomUsdcBalance.value = balanceInfo.amount
+  } catch (e) {
+    walletGuardError.value = e?.message || "Erreur de vérification wallet."
+  } finally {
+    walletGuardLoading.value = false
+  }
+}
+
+// ==========================
 // MODALS STATE
 // ==========================
 const showCreateContract = ref(false)
@@ -171,6 +245,15 @@ async function loadMessagingData() {
 // MODAL ACTIONS
 // ==========================
 function openCreateContract() {
+  if (walletGuardLoading.value) {
+    alert("Vérification wallet en cours...")
+    return
+  }
+  if (!walletGuardOk.value) {
+    alert(walletGuardError.value || "Wallet Phantom non validé.")
+    return
+  }
+
   console.group("🧪 Solana config check")
 
   console.log("programId:", walletConfig.value.programId)
@@ -242,6 +325,7 @@ async function handleContractUpdated() {
 function handleConnected() {
   showAuth.value = false
   loadWalletConfig()
+  refreshWalletGuard()
   loadMyContracts()
   loadMessagingData()
   loadProfile()
@@ -288,6 +372,7 @@ watch(
     showAuth.value = !logged
     if (logged) {
       loadWalletConfig()
+      refreshWalletGuard()
       loadMyContracts()
       loadMessagingData()
       loadProfile()
@@ -306,11 +391,30 @@ watch(
 onMounted(() => {
   if (auth.isLogged) {
     loadWalletConfig()
+    refreshWalletGuard()
     loadMyContracts()
     loadMessagingData()
     loadProfile()
   }
 })
+
+watch(
+  () => auth.user?.walletAddress,
+  () => {
+    if (auth.isLogged) refreshWalletGuard()
+  },
+)
+
+watch(
+  [
+    () => walletConfig.value.rpcUrl,
+    () => walletConfig.value.usdcMint,
+    () => walletConfig.value.network,
+  ],
+  () => {
+    if (auth.isLogged) refreshWalletGuard()
+  },
+)
 </script>
 
 <template>
@@ -326,6 +430,38 @@ onMounted(() => {
         {{ profile.username?.substring(0, 2).toUpperCase() }}
       </div>
     </header>
+
+    <section class="wallet-guard" :class="{ bad: !!walletGuardError }">
+      <div class="wallet-guard-title">Wallet Phantom</div>
+      <div class="wallet-guard-row">
+        <span>Adresse</span>
+        <span>{{ phantomAddress || "Non connecté" }}</span>
+      </div>
+      <div class="wallet-guard-row">
+        <span>Réseau</span>
+        <span>{{ phantomNetwork || walletConfig.network }}</span>
+      </div>
+      <div class="wallet-guard-row">
+        <span>USDC</span>
+        <span>
+          {{
+            phantomUsdcBalance === null
+              ? "—"
+              : `${Number(phantomUsdcBalance).toFixed(2)} USDC`
+          }}
+        </span>
+      </div>
+      <div v-if="walletGuardError" class="wallet-guard-stop">
+        STOP: {{ walletGuardError }}
+      </div>
+      <button
+        class="wallet-guard-refresh"
+        :disabled="walletGuardLoading"
+        @click="refreshWalletGuard"
+      >
+        {{ walletGuardLoading ? "Vérification..." : "Rafraîchir" }}
+      </button>
+    </section>
 
     <!-- NAVIGATION -->
     <nav class="tabs">
@@ -466,6 +602,66 @@ onMounted(() => {
   font-weight: 700;
   letter-spacing: 0.5px;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
+}
+
+.wallet-guard {
+  margin: 6px 0 18px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(120, 90, 255, 0.25);
+  background: linear-gradient(160deg, rgba(12, 18, 36, 0.92), rgba(14, 23, 52, 0.92));
+  box-shadow:
+    0 12px 26px rgba(0, 0, 0, 0.35),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+
+.wallet-guard.bad {
+  border-color: rgba(255, 107, 107, 0.6);
+  background: linear-gradient(160deg, rgba(52, 16, 16, 0.92), rgba(24, 10, 24, 0.92));
+}
+
+.wallet-guard-title {
+  color: #d6e0ff;
+  font-weight: 700;
+  margin-bottom: 10px;
+  letter-spacing: 0.4px;
+}
+
+.wallet-guard-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 13px;
+  color: #a6b3d1;
+}
+
+.wallet-guard-row span:last-child {
+  color: #e9f2ff;
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.wallet-guard-stop {
+  margin-top: 10px;
+  color: #ffb4b4;
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.wallet-guard-refresh {
+  margin-top: 10px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(120, 90, 255, 0.35);
+  background: rgba(18, 28, 58, 0.9);
+  color: #d6e0ff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.wallet-guard-refresh:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .metrics {

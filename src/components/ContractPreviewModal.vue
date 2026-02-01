@@ -119,6 +119,11 @@ const ensurePhantom = async () => {
   if (!phantom) throw new Error("Phantom non detecte.")
   const { publicKey } = await connectPhantom()
   if (!publicKey) throw new Error("Wallet introuvable.")
+  const expectedWallet = auth.user?.walletAddress
+  const connectedWallet = publicKey.toBase58()
+  if (expectedWallet && expectedWallet !== connectedWallet) {
+    throw new Error("Wallet Phantom différent du compte connecté.")
+  }
   return { phantom, publicKey }
 }
 

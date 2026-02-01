@@ -3,7 +3,6 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue"
 import flatpickr from "flatpickr"
 import "flatpickr/dist/themes/dark.css"
-import { loadProgram } from "../services/solana"
 import { PublicKey } from "@solana/web3.js"
 import { getMint } from "@solana/spl-token"
 import BN from "bn.js"
@@ -21,13 +20,14 @@ import {
   getOrCreateAta,
   findEscrowPdas,
   initializeEscrow,
+  loadProgram,
 } from "../services/solana"
 
 // --------------------------------------------------
 // PROPS / EMITS / STORE
 // --------------------------------------------------
 const props = defineProps({
-  employers: Array,
+  employers: Array, // ta liste contient en réalité les freelances "assign to"
   programId: String,
   usdcMint: String,
   network: String,
@@ -46,14 +46,14 @@ const auth = useAuthStore()
 const form = reactive({
   title: "",
   description: "",
-  checkpoints: "",
-  timeline: { start: "", end: "" },
-  employer: null, // client sélectionné (worker)
+  checkpoints: "", // ✅ string (comme Postman / back)
+  timeline: { start: "", end: "" }, // UI seulement (on n’envoie plus au back)
+  employer: null, // sélection (freelance) dans le select
   amountUsdc: "",
 })
 
 // --------------------------------------------------
-// PICKERS
+// PICKERS (UI seulement)
 // --------------------------------------------------
 const startInput = ref(null)
 const endInput = ref(null)
@@ -76,10 +76,8 @@ const canSubmit = computed(() => {
   return (
     form.title &&
     form.description &&
-    form.checkpoints &&
-    form.employer &&
-    form.timeline.start &&
-    form.timeline.end &&
+    form.checkpoints && // ✅ string requis
+    form.employer && // ✅ freelance choisi
     Number.isFinite(amount) &&
     amount > 0 &&
     !loading.value &&
@@ -114,55 +112,18 @@ async function ensurePhantom() {
     txStatus.value = "Installe Phantom."
     throw new Error("Phantom manquant")
   }
+
   const { publicKey } = await connectPhantom()
-  walletAddress.value = publicKey?.toBase58() || ""
-  return { phantom, publicKey }
-}
+  const expectedWallet = auth.user?.walletAddress
+  const connectedWallet = publicKey?.toBase58() || ""
 
-/**
- * ✅ IDL "spec" -> IDL "legacy" pour Anchor JS
- * Fix réel pour l'erreur: Cannot read properties of undefined (reading 'size')
- *
- * Anchor JS veut:
- * - accounts[].type (struct) présent
- * - instructions[].accounts[].isMut/isSigner (legacy)
- */
-function normalizeIdlForAnchor(raw) {
-  const name = raw?.name ?? raw?.metadata?.name ?? "escrow_program"
-  const version = raw?.version ?? raw?.metadata?.version ?? "0.1.0"
-
-  const types = Array.isArray(raw?.types) ? raw.types : []
-  const accounts = Array.isArray(raw?.accounts) ? raw.accounts : []
-  const instructions = Array.isArray(raw?.instructions) ? raw.instructions : []
-
-  const typesByName = new Map(types.map((t) => [t?.name, t]))
-
-  // accounts[].type obligatoire
-  const normalizedAccounts = accounts.map((acc) => {
-    if (acc?.type) return acc
-    const typeDef = typesByName.get(acc?.name)
-    if (typeDef?.type) return { ...acc, type: typeDef.type }
-    return acc
-  })
-
-  // instructions[].accounts => isMut / isSigner
-  const normalizedInstructions = instructions.map((ix) => ({
-    ...ix,
-    accounts: (ix.accounts || []).map((a) => ({
-      ...a,
-      isMut: a.isMut ?? a.writable ?? false,
-      isSigner: a.isSigner ?? a.signer ?? false,
-    })),
-  }))
-
-  return {
-    ...raw,
-    name,
-    version,
-    accounts: normalizedAccounts,
-    instructions: normalizedInstructions,
-    types,
+  if (expectedWallet && connectedWallet && expectedWallet !== connectedWallet) {
+    txStatus.value = "STOP: wallet Phantom ≠ wallet du compte."
+    throw new Error("Wallet Phantom différent du compte connecté.")
   }
+
+  walletAddress.value = connectedWallet
+  return { phantom, publicKey }
 }
 
 // contract_id attendu par l’IDL: [u8; 32]
@@ -206,7 +167,6 @@ async function loadUsdcBalance() {
 // --------------------------------------------------
 async function submitForm() {
   console.log("🟡 submitForm START")
-
   if (!canSubmit.value) return
 
   try {
@@ -221,6 +181,7 @@ async function submitForm() {
 
     const employerWallet = publicKey.toBase58()
 
+    // ✅ "Assign to" = freelance
     const freelancerWallet =
       form.employer?.walletAddress || form.employer?.wallet_address
     if (!freelancerWallet) return alert("Wallet du freelance manquant.")
@@ -232,8 +193,8 @@ async function submitForm() {
     if (rawIdl?.address && rawIdl.address !== props.programId) {
       alert(
         "IDL et ProgramId ne correspondent pas.\n" +
-          `IDL: ${rawIdl.address}\n` +
-          `Program: ${props.programId}`
+        `IDL: ${rawIdl.address}\n` +
+        `Program: ${props.programId}`
       )
       return
     }
@@ -253,10 +214,13 @@ async function submitForm() {
     console.log("🧪 IDL address =", rawIdl?.address)
     console.log("🧪 IDL accounts =", rawIdl?.accounts?.map((a) => a.name))
     console.log("🧪 IDL types =", rawIdl?.types?.map((t) => t.name))
-    console.log("🧪 IDL instructions =", rawIdl?.instructions?.map((i) => i.name))
+    console.log(
+      "🧪 IDL instructions =",
+      rawIdl?.instructions?.map((i) => i.name)
+    )
     console.log("🟦 before new Program")
 
-const program = loadProgram(rawIdl, props.programId, provider)
+    const program = loadProgram(rawIdl, props.programId, provider)
 
     console.log("🟩 after new Program", program.programId.toBase58())
 
@@ -329,26 +293,26 @@ const program = loadProgram(rawIdl, props.programId, provider)
     })
 
     // -----------------------
-    // Backend save
+    // Backend save (✅ aligné Postman / back)
+    // - checkpoints: string
+    // - amountUsdc: string
+    // - PAS de timeline
     // -----------------------
     txStatus.value = "Creation du contrat..."
 
-    const checkpointsArray = form.checkpoints
-      ? form.checkpoints.split("\n").map((c) => c.trim()).filter(Boolean)
-      : []
-
     const res = await api.post("/contracts", {
-      title: form.title,
-      description: form.description,
-      checkpoints: checkpointsArray,
-      timeline: { start: form.timeline.start, end: form.timeline.end },
-      amountUsdc: amountUsdcUi,
+      title: String(form.title || "").trim(),
+      description: String(form.description || "").trim(),
+      checkpoints: String(form.checkpoints || "").trim(), // ✅ string
+      amountUsdc: String(amountUsdcUi), // ✅ string (comme Postman)
       employerUuid,
       employerWallet,
       freelancerWallet: workerPk.toBase58(),
       txSig: sig,
       escrowStatePda: escrowStatePda.toBase58(),
       vaultPda: vaultPda.toBase58(),
+
+      // Optionnels (tu peux les garder, le back les ignore si pas utilisés)
       usdcMint: props.usdcMint,
       programId: props.programId,
       feeWallet: props.feeWallet,
@@ -440,6 +404,7 @@ onBeforeUnmount(() => {
         <p class="muted">USDC Balance: {{ usdcBalance.toFixed(2) }} USDC</p>
       </label>
 
+      <!-- Dates = UI seulement (non envoyées au back) -->
       <div class="field date-grid">
         <label>
           <span>Start date</span>
