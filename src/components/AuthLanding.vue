@@ -61,9 +61,9 @@ async function handleProceed() {
 <template>
   <section class="auth">
     <div class="card">
-      <div class="icon"><span>WORK</span></div>
+      <div class="icon"><img style="width: 100%;" src="../assets/byhnexLogo.png" alt=""></div>
 
-      <h1>Connexion Solana</h1>
+      <h1>Byhnex</h1>
       <p class="lead">Connecte-toi ou crée un compte via Phantom.</p>
 
       <div v-if="mode === 'register'" class="form-group">
