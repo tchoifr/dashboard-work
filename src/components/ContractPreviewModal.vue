@@ -4,32 +4,23 @@ import { computed, ref } from "vue"
 import { PublicKey } from "@solana/web3.js"
 
 import api from "../services/api"
-import rawIdl from "../idl/escrow_program.json"
 import { useAuthStore } from "../store/auth"
 
 import {
-  acceptEscrow,
-  adminVote,
   connectPhantom,
   getAnchorProvider,
   getConnection,
-  getOrCreateAta,
   getPhantomProvider,
   loadProgram,
-  employerApproveCompletion,
-  workerApproveCompletion,
   openDispute,
-  refundToEmployer,
-  releaseIfBothApproved,
-  releaseToWorker,
 } from "../services/solana"
+
+import rawIdl from "../idl/escrow_program.json"
 
 const props = defineProps({
   contract: { type: Object, required: true },
   programId: String,
-  usdcMint: String,
   rpcUrl: String,
-  feeWallet: String,
   admin1: String,
   admin2: String,
 })
@@ -43,27 +34,22 @@ const txStatus = ref("")
 
 const pick = (keys) => keys.map((k) => props.contract?.[k]).find((v) => v != null)
 
-const contractId = computed(() => pick(["uuid", "id"]))
+/** ✅ contract uuid (ton controller utilise {uuid}) */
+const contractUuid = computed(() => pick(["uuid"]))
+
+/** status en majuscule */
 const status = computed(() => String(pick(["status"]) || "").toUpperCase())
 
+/** PDAs */
 const escrowStatePda = computed(() => pick(["escrowStatePda", "escrow_state_pda"]))
-const vaultPda = computed(() => pick(["vaultPda", "vault_pda", "vault"]))
 
-const employerWallet = computed(() => pick(["employerWallet", "employer_wallet", "employer"]))
-const freelancerWallet = computed(() =>
-  pick(["freelancerWallet", "freelancer_wallet", "worker_wallet", "worker"])
-)
+/** wallets (ton serializer renvoie employer/freelancer objects) */
+const employerWallet = computed(() => props.contract?.employer?.walletAddress || pick(["employerWallet", "employer_wallet"]))
+const freelancerWallet = computed(() => props.contract?.freelancer?.walletAddress || pick(["freelancerWallet", "freelancer_wallet"]))
 
 const admin1Wallet = computed(() => props.admin1 || pick(["adminOneWallet", "admin_one_wallet", "admin1"]))
 const admin2Wallet = computed(() => props.admin2 || pick(["adminTwoWallet", "admin_two_wallet", "admin2"]))
-const feeWallet = computed(() => props.feeWallet || pick(["feeWallet", "fee_wallet"]))
 const programId = computed(() => props.programId || pick(["programId", "program_id"]))
-const usdcMint = computed(() => props.usdcMint || pick(["usdcMint", "usdc_mint"]))
-
-const employerDone = computed(() => Boolean(pick(["employerDone", "employer_done"])))
-const freelancerDone = computed(() => Boolean(pick(["freelancerDone", "freelancer_done"])))
-const admin1VoteValue = computed(() => pick(["admin1Vote", "admin1_vote"]))
-const admin2VoteValue = computed(() => pick(["admin2Vote", "admin2_vote"]))
 
 const isEmployer = computed(() => !!auth.user?.walletAddress && auth.user.walletAddress === employerWallet.value)
 const isFreelancer = computed(() => !!auth.user?.walletAddress && auth.user.walletAddress === freelancerWallet.value)
@@ -73,63 +59,65 @@ const isAdmin = computed(() => {
   return w === admin1Wallet.value || w === admin2Wallet.value
 })
 
-// adapte selon TON backend
-const canAccept = computed(() => isFreelancer.value && status.value === "ONCHAIN_CREATED")
-const canMarkEmployer = computed(() => isEmployer.value && ["IN_PROGRESS", "DONE_PENDING"].includes(status.value) && !employerDone.value)
-const canMarkFreelancer = computed(() => isFreelancer.value && ["IN_PROGRESS", "DONE_PENDING"].includes(status.value) && !freelancerDone.value)
-const canRelease = computed(() => (isEmployer.value || isFreelancer.value) && status.value === "READY_TO_RELEASE")
-const canDispute = computed(() => (isEmployer.value || isFreelancer.value) && ["IN_PROGRESS", "DONE_PENDING", "READY_TO_RELEASE"].includes(status.value))
-const canAdminVote = computed(() => isAdmin.value && status.value === "DISPUTED")
-const canAdminResolve = computed(() => isAdmin.value && status.value === "DISPUTED" && admin1VoteValue.value && admin2VoteValue.value)
+/** règles */
+const canDispute = computed(() =>
+  (isEmployer.value || isFreelancer.value) &&
+  ["IN_PROGRESS", "DONE_PENDING", "READY_TO_RELEASE"].includes(status.value)
+)
 
-/**
- * Même normalisation IDL que CreationModal
- */
-function normalizeIdlForAnchor(raw) {
-  const name = raw?.name ?? raw?.metadata?.name ?? "escrow_program"
-  const version = raw?.version ?? raw?.metadata?.version ?? "0.1.0"
-
-  const types = Array.isArray(raw?.types) ? raw.types : []
-  const accounts = Array.isArray(raw?.accounts) ? raw.accounts : []
-  const instructions = Array.isArray(raw?.instructions) ? raw.instructions : []
-
-  const typesByName = new Map(types.map((t) => [t?.name, t]))
-
-  const normalizedAccounts = accounts.map((acc) => {
-    if (acc?.type) return acc
-    const typeDef = typesByName.get(acc?.name)
-    if (typeDef?.type) return { ...acc, type: typeDef.type }
-    return acc
-  })
-
-  const normalizedInstructions = instructions.map((ix) => ({
-    ...ix,
-    accounts: (ix.accounts || []).map((a) => ({
-      ...a,
-      isMut: a.isMut ?? a.writable ?? false,
-      isSigner: a.isSigner ?? a.signer ?? false,
-    })),
-  }))
-
-  return { ...raw, name, version, accounts: normalizedAccounts, instructions: normalizedInstructions, types }
+/** ✅ format date en anglais (UK) */
+function formatDateEn(value) {
+  if (!value) return "-"
+  const d = new Date(value) // ISO DATE_ATOM -> OK
+  if (Number.isNaN(d.getTime())) return "-"
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(d)
 }
+
+/** dates ISO renvoyées par ton serializer */
+const startAt = computed(() => pick(["startAt", "start_at"]))
+const endAt = computed(() => pick(["endAt", "end_at"]))
+const createdAt = computed(() => pick(["createdAt", "created_at"]))
+
+const createdAtLabel = computed(() => formatDateEn(createdAt.value))
+
+const periodLabel = computed(() => {
+  const s = formatDateEn(startAt.value)
+  const e = formatDateEn(endAt.value)
+  if (s === "-" && e === "-") return "-"
+  return `${s} → ${e}`
+})
+
+const humanAmount = computed(() => {
+  const amount = pick(["amountUsdc", "amount_usdc", "amount"])
+  if (amount == null) return "-"
+  return `${Number(amount).toFixed(2)} USDC`
+})
+
+const checkpointsLabel = computed(() => {
+  const checkpoints = pick(["checkpoints"])
+  if (Array.isArray(checkpoints)) return checkpoints.filter(Boolean).join("\n")
+  return checkpoints || "No checkpoints provided."
+})
 
 const ensurePhantom = async () => {
   const phantom = getPhantomProvider()
-  if (!phantom) throw new Error("Phantom non detecte.")
+  if (!phantom) throw new Error("Phantom not detected.")
   const { publicKey } = await connectPhantom()
-  if (!publicKey) throw new Error("Wallet introuvable.")
+  if (!publicKey) throw new Error("Wallet not found.")
   const expectedWallet = auth.user?.walletAddress
   const connectedWallet = publicKey.toBase58()
   if (expectedWallet && expectedWallet !== connectedWallet) {
-    throw new Error("Wallet Phantom différent du compte connecté.")
+    throw new Error("Phantom wallet is different from the connected account.")
   }
   return { phantom, publicKey }
 }
 
 const getProgramContext = async ({ phantom, publicKey }) => {
-  if (!programId.value) throw new Error("ProgramId manquant.")
-
+  if (!programId.value) throw new Error("Missing programId.")
   const connection = getConnection(props.rpcUrl)
   const wallet = {
     publicKey,
@@ -137,28 +125,18 @@ const getProgramContext = async ({ phantom, publicKey }) => {
     signAllTransactions: phantom.signAllTransactions.bind(phantom),
   }
   const provider = getAnchorProvider(connection, wallet)
-
   const program = loadProgram(rawIdl, programId.value, provider)
-
-  return { connection, provider, program }
+  return { program }
 }
 
 const toPublicKeyStrict = (value, label) => {
-  if (!value) throw new Error(`${label} manquant.`)
+  if (!value) throw new Error(`${label} missing.`)
   return new PublicKey(value)
 }
 
-const notifyBackend = async (endpoint, signature) => {
-  if (!contractId.value) throw new Error("Identifiant contrat manquant.")
-
-  if (endpoint === "dispute") {
-    await api.post(`/contracts/${contractId.value}/dispute`, { txSig: signature })
-  } else if (endpoint === "admin-vote-release") {
-    await api.post(`/contracts/${contractId.value}/admin/vote-release`, { txSig: signature })
-  } else if (endpoint === "admin-vote-refund") {
-    await api.post(`/contracts/${contractId.value}/admin/vote-refund`, { txSig: signature })
-  }
-
+const notifyBackendDispute = async (signature) => {
+  if (!contractUuid.value) throw new Error("Missing contract uuid.")
+  await api.post(`/contracts/${contractUuid.value}/dispute`, { txSig: signature })
   emit("updated")
 }
 
@@ -167,94 +145,18 @@ const withAction = async (label, action) => {
     loading.value = true
     txStatus.value = label
     const sig = await action()
-    txStatus.value = "Transaction envoyee."
+    txStatus.value = "Transaction sent."
     return sig
   } catch (e) {
     console.error(label, e)
-    alert(e?.message || "Transaction echouee.")
+    alert(e?.message || "Transaction failed.")
   } finally {
     loading.value = false
   }
 }
 
-const handleAccept = () =>
-  withAction("Signature accept...", async () => {
-    const ctx = await ensurePhantom()
-    const { program } = await getProgramContext(ctx)
-
-    const signature = await acceptEscrow({
-      program,
-      worker: ctx.publicKey,
-      escrowStatePda: toPublicKeyStrict(escrowStatePda.value, "escrow_state_pda"),
-    })
-
-    emit("updated")
-    return signature
-  })
-
-const handleEmployerDone = () =>
-  withAction("Signature validation employeur...", async () => {
-    const ctx = await ensurePhantom()
-    const { program } = await getProgramContext(ctx)
-
-    const signature = await employerApproveCompletion({
-      program,
-      initializer: ctx.publicKey,
-      escrowStatePda: toPublicKeyStrict(escrowStatePda.value, "escrow_state_pda"),
-    })
-
-    emit("updated")
-    return signature
-  })
-
-const handleFreelancerDone = () =>
-  withAction("Signature validation freelance...", async () => {
-    const ctx = await ensurePhantom()
-    const { program } = await getProgramContext(ctx)
-
-    const signature = await workerApproveCompletion({
-      program,
-      worker: ctx.publicKey,
-      escrowStatePda: toPublicKeyStrict(escrowStatePda.value, "escrow_state_pda"),
-    })
-
-    emit("updated")
-    return signature
-  })
-
-const handleRelease = () =>
-  withAction("Signature release...", async () => {
-    const ctx = await ensurePhantom()
-    const { connection, provider, program } = await getProgramContext(ctx)
-
-    const payerPk = provider.wallet.publicKey
-    const mint = toPublicKeyStrict(usdcMint.value, "usdc_mint")
-    const freelancerPk = toPublicKeyStrict(freelancerWallet.value, "freelancer_wallet")
-    const feeWalletPk = toPublicKeyStrict(feeWallet.value, "fee_wallet")
-
-    const { ata: freelancerAta } = await getOrCreateAta({
-      connection, provider, payer: payerPk, owner: freelancerPk, mint,
-    })
-
-    const { ata: feeAta } = await getOrCreateAta({
-      connection, provider, payer: payerPk, owner: feeWalletPk, mint,
-    })
-
-    const signature = await releaseIfBothApproved({
-      program,
-      caller: ctx.publicKey,
-      escrowStatePda: toPublicKeyStrict(escrowStatePda.value, "escrow_state_pda"),
-      vaultPda: toPublicKeyStrict(vaultPda.value, "vault_pda"),
-      workerUsdcAta: freelancerAta,
-      adminFeeAccount: feeAta,
-    })
-
-    emit("updated")
-    return signature
-  })
-
 const handleDispute = () =>
-  withAction("Signature dispute...", async () => {
+  withAction("Signing dispute...", async () => {
     const ctx = await ensurePhantom()
     const { program } = await getProgramContext(ctx)
 
@@ -264,103 +166,9 @@ const handleDispute = () =>
       escrowStatePda: toPublicKeyStrict(escrowStatePda.value, "escrow_state_pda"),
     })
 
-    await notifyBackend("dispute", signature)
+    await notifyBackendDispute(signature)
     return signature
   })
-
-const handleAdminVote = (decisionKey) =>
-  withAction("Signature vote admin...", async () => {
-    const ctx = await ensurePhantom()
-    const { program } = await getProgramContext(ctx)
-
-    const signature = await adminVote({
-      program,
-      admin: ctx.publicKey,
-      escrowStatePda: toPublicKeyStrict(escrowStatePda.value, "escrow_state_pda"),
-      voteForWorker: decisionKey === "release",
-    })
-
-    await notifyBackend(
-      decisionKey === "release" ? "admin-vote-release" : "admin-vote-refund",
-      signature
-    )
-    return signature
-  })
-
-const handleAdminResolveToFreelancer = () =>
-  withAction("Signature resolve freelancer...", async () => {
-    const ctx = await ensurePhantom()
-    const { connection, provider, program } = await getProgramContext(ctx)
-
-    const payerPk = provider.wallet.publicKey
-    const mint = toPublicKeyStrict(usdcMint.value, "usdc_mint")
-    const freelancerPk = toPublicKeyStrict(freelancerWallet.value, "freelancer_wallet")
-    const feeWalletPk = toPublicKeyStrict(feeWallet.value, "fee_wallet")
-
-    const { ata: freelancerAta } = await getOrCreateAta({
-      connection, provider, payer: payerPk, owner: freelancerPk, mint,
-    })
-
-    const { ata: feeAta } = await getOrCreateAta({
-      connection, provider, payer: payerPk, owner: feeWalletPk, mint,
-    })
-
-    const signature = await releaseToWorker({
-      program,
-      admin: ctx.publicKey,
-      escrowStatePda: toPublicKeyStrict(escrowStatePda.value, "escrow_state_pda"),
-      vaultPda: toPublicKeyStrict(vaultPda.value, "vault_pda"),
-      workerUsdcAta: freelancerAta,
-      adminFeeAccount: feeAta,
-    })
-
-    emit("updated")
-    return signature
-  })
-
-const handleAdminResolveToEmployer = () =>
-  withAction("Signature resolve employer...", async () => {
-    const ctx = await ensurePhantom()
-    const { connection, provider, program } = await getProgramContext(ctx)
-
-    const payerPk = provider.wallet.publicKey
-    const mint = toPublicKeyStrict(usdcMint.value, "usdc_mint")
-    const employerPk = toPublicKeyStrict(employerWallet.value, "employer_wallet")
-
-    const { ata: employerAta } = await getOrCreateAta({
-      connection, provider, payer: payerPk, owner: employerPk, mint,
-    })
-
-    const signature = await refundToEmployer({
-      program,
-      admin: ctx.publicKey,
-      escrowStatePda: toPublicKeyStrict(escrowStatePda.value, "escrow_state_pda"),
-      vaultPda: toPublicKeyStrict(vaultPda.value, "vault_pda"),
-      initializerUsdcAta: employerAta,
-    })
-
-    emit("updated")
-    return signature
-  })
-
-const humanAmount = computed(() => {
-  const amount = pick(["amountUsdc", "amount_usdc", "amount"])
-  if (amount == null) return "-"
-  return `${Number(amount).toFixed(2)} USDC`
-})
-
-const periodLabel = computed(() => {
-  const start = pick(["startAt", "start_at"]) || props.contract?.timeline?.start
-  const end = pick(["endAt", "end_at"]) || props.contract?.timeline?.end
-  if (!start && !end) return "-"
-  return `${start || "?"} -> ${end || "?"}`
-})
-
-const checkpointsLabel = computed(() => {
-  const checkpoints = pick(["checkpoints"])
-  if (Array.isArray(checkpoints)) return checkpoints.filter(Boolean).join("\n")
-  return checkpoints || "No checkpoints provided."
-})
 </script>
 
 <template>
@@ -369,7 +177,9 @@ const checkpointsLabel = computed(() => {
       <div>
         <p class="eyebrow">Contract Preview</p>
         <h3>{{ contract.title || contract.name }}</h3>
-        <p class="muted">{{ contract.client || contract.employerLabel || " " }}</p>
+        <p class="muted">
+          {{ contract?.freelancer?.username || contract?.freelancer?.walletAddress || " " }}
+        </p>
       </div>
       <button class="close" type="button" @click="close">x</button>
     </header>
@@ -378,6 +188,11 @@ const checkpointsLabel = computed(() => {
       <article class="info">
         <p class="label">Amount</p>
         <p class="value">{{ humanAmount }}</p>
+      </article>
+
+      <article class="info">
+        <p class="label">Created</p>
+        <p class="value">{{ createdAtLabel }}</p>
       </article>
 
       <article class="info">
@@ -405,43 +220,8 @@ const checkpointsLabel = computed(() => {
       <p class="label">Actions</p>
 
       <div class="actions-grid">
-        <button class="btn primary" type="button" :disabled="!canAccept || loading" @click="handleAccept">
-          Accept (freelancer)
-        </button>
-
-        <button class="btn ghost" type="button" :disabled="!canMarkEmployer || loading" @click="handleEmployerDone">
-          Mark done (employer)
-        </button>
-
-        <button class="btn ghost" type="button" :disabled="!canMarkFreelancer || loading" @click="handleFreelancerDone">
-          Mark done (freelancer)
-        </button>
-
-        <button class="btn primary" type="button" :disabled="!canRelease || loading" @click="handleRelease">
-          Release
-        </button>
-
         <button class="btn warn" type="button" :disabled="!canDispute || loading" @click="handleDispute">
           Open dispute
-        </button>
-
-        <button class="btn admin" type="button" :disabled="!canAdminVote || loading"
-          @click="handleAdminVote('release')">
-          Admin vote: release
-        </button>
-
-        <button class="btn admin" type="button" :disabled="!canAdminVote || loading" @click="handleAdminVote('refund')">
-          Admin vote: refund
-        </button>
-
-        <button class="btn admin" type="button" :disabled="!canAdminResolve || loading"
-          @click="handleAdminResolveToFreelancer">
-          Admin resolve: freelancer
-        </button>
-
-        <button class="btn admin" type="button" :disabled="!canAdminResolve || loading"
-          @click="handleAdminResolveToEmployer">
-          Admin resolve: employer
         </button>
       </div>
 
@@ -449,6 +229,7 @@ const checkpointsLabel = computed(() => {
     </section>
   </div>
 </template>
+
 
 <style scoped>
 .modal {
