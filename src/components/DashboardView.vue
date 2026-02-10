@@ -1,16 +1,14 @@
 <script setup>
 import { ref, computed, onMounted, watch } from "vue"
+import { storeToRefs } from "pinia"
 import { useAuthStore } from "../store/auth"
 import { useConversationStore } from "../store/conversations"
 import { useProfileStore } from "../store/profile"
-import api from "../services/api"
-import {
-  DEFAULT_CHAIN,
-  getClusterFromConnection,
-  getConnection,
-  getPhantomProvider,
-  getUsdcBalance,
-} from "../services/solana"
+import { useWalletConfigStore } from "../store/walletConfig"
+import { useContractsStore } from "../store/contracts"
+import { getConnection } from "../solana/connection"
+import { connectPhantom, getPhantomProvider } from "../solana/phantom"
+import { getUsdcBalance } from "../solana/usdc"
 
 // SECTIONS
 import OverviewSection from "./OverviewSection.vue"
@@ -62,7 +60,7 @@ const profileView = computed(() => profileStore.profile)
 const profile = computed(() => ({
   username: profileView.value?.name || auth.user?.username || "User",
   wallet: auth.user?.walletAddress,
-  chain: auth.user?.chain || DEFAULT_CHAIN,
+  chain: auth.user?.chain || walletConfigSafe.value.chain || null,
 }))
 
 async function loadProfile() {
@@ -82,28 +80,22 @@ async function handleSaveProfile(updatedProfile) {
 // ==========================
 // CONTRACTS
 // ==========================
-const activeContracts = ref([])
+const contractsStore = useContractsStore()
+const activeContracts = computed(() => contractsStore.myContracts)
 
 // ==========================
 // WALLETS FOR CONTRACT MODAL
 // ==========================
 const freelancerWallet = computed(() => auth.user?.walletAddress || "")
 
-const walletConfig = ref({
-  usdcMint: import.meta.env.VITE_SOLANA_USDC_MINT,
-  programId: import.meta.env.VITE_SOLANA_PROGRAM_ID,
-  rpcUrl: import.meta.env.VITE_SOLANA_RPC,
-  network: DEFAULT_CHAIN,
-  feeWallet: import.meta.env.VITE_SOLANA_FEE_WALLET,
-  admin1: import.meta.env.VITE_SOLANA_ADMIN_1,
-  admin2: import.meta.env.VITE_SOLANA_ADMIN_2,
-})
+const walletConfigStore = useWalletConfigStore()
+const { config: walletConfig, loading: walletConfigLoading, error: walletConfigError } =
+  storeToRefs(walletConfigStore)
+const walletConfigSafe = computed(() => walletConfig.value || {})
 
 const isPlaceholderKey = (value) =>
   !value || value === "11111111111111111111111111111111"
 
-const programId = computed(() => walletConfig.value.programId)
-const usdcMint = computed(() => walletConfig.value.usdcMint)
 
 // ==========================
 // WALLET GUARD (SOURCE DE VERITE)
@@ -119,6 +111,8 @@ const walletGuardOk = computed(
 )
 
 const refreshWalletGuard = async () => {
+  if (walletGuardLoading.value) return
+
   walletGuardLoading.value = true
   walletGuardError.value = ""
 
@@ -131,7 +125,7 @@ const refreshWalletGuard = async () => {
 
     let publicKey = phantom.publicKey
     if (!publicKey) {
-      const trusted = await phantom.connect({ onlyIfTrusted: true }).catch(() => null)
+      const trusted = await connectPhantom({ onlyIfTrusted: true, interactive: false })
       publicKey = trusted?.publicKey || phantom.publicKey
     }
 
@@ -148,21 +142,17 @@ const refreshWalletGuard = async () => {
       return
     }
 
-    const connection = getConnection(walletConfig.value.rpcUrl)
-    const { cluster } = await getClusterFromConnection(connection).catch(() => ({
-      cluster: null,
-    }))
-    phantomNetwork.value = cluster ? `solana-${cluster}` : walletConfig.value.network
-
-    const expectedChain = (walletConfig.value.network || DEFAULT_CHAIN).toLowerCase()
-    if (expectedChain.includes("devnet") && cluster && cluster !== "devnet") {
-      walletGuardError.value = "Réseau Phantom ≠ devnet."
+    if (!walletConfigSafe.value.rpcUrl || !walletConfigSafe.value.usdcMint) {
+      walletGuardError.value = "Config wallet manquante."
       return
     }
 
+    const connection = getConnection(walletConfigSafe.value.rpcUrl)
+    phantomNetwork.value = walletConfigSafe.value.chain || ""
+
     const balanceInfo = await getUsdcBalance({
       wallet: phantomAddress.value,
-      mintAddress: walletConfig.value.usdcMint,
+      mintAddress: walletConfigSafe.value.usdcMint,
       connection,
     })
     phantomUsdcBalance.value = balanceInfo.amount
@@ -200,8 +190,7 @@ const unreadCount = computed(() => conversationStore.totalUnread)
 async function loadMyContracts() {
   if (!auth.isLogged) return
   try {
-    const res = await api.get("/contracts/me")
-    activeContracts.value = res.data || []
+    await contractsStore.fetchAll()
   } catch (e) {
     console.error("Load contracts failed", e)
   }
@@ -209,20 +198,7 @@ async function loadMyContracts() {
 
 async function loadWalletConfig() {
   try {
-    const { data } = await api.get("/wallet/config")
-
-    walletConfig.value = {
-      usdcMint: data.usdcMint ?? walletConfig.value.usdcMint,
-      programId: data.programId ?? walletConfig.value.programId,
-      rpcUrl: data.rpcUrl ?? walletConfig.value.rpcUrl,
-      network: data.network ?? DEFAULT_CHAIN,
-      feeWallet: data.feeWallet ?? walletConfig.value.feeWallet,
-
-      // ne jamais forcer ""
-      admin1: data.admin1 ?? null,
-      admin2: data.admin2 ?? null,
-    }
-
+    await walletConfigStore.fetchWalletConfig({ auth: true, force: true })
     console.log("✅ Wallet config loaded:", walletConfig.value)
   } catch (e) {
     console.error("❌ Load wallet config failed", e)
@@ -245,6 +221,14 @@ async function loadMessagingData() {
 // MODAL ACTIONS
 // ==========================
 function openCreateContract() {
+  if (walletConfigLoading.value) {
+    alert("Chargement de la config wallet...")
+    return
+  }
+  if (walletConfigError.value) {
+    alert("Configuration Solana indisponible.")
+    return
+  }
   if (walletGuardLoading.value) {
     alert("Vérification wallet en cours...")
     return
@@ -256,18 +240,26 @@ function openCreateContract() {
 
   console.group("🧪 Solana config check")
 
-  console.log("programId:", walletConfig.value.programId)
-  console.log("usdcMint:", walletConfig.value.usdcMint)
-  console.log("feeWallet:", walletConfig.value.feeWallet)
-  console.log("admin1:", walletConfig.value.admin1)
-  console.log("admin2:", walletConfig.value.admin2)
+  console.log("programId:", walletConfigSafe.value.programId)
+  console.log("usdcMint:", walletConfigSafe.value.usdcMint)
+  console.log("rpcUrl:", walletConfigSafe.value.rpcUrl)
+  console.log("chain:", walletConfigSafe.value.chain)
+  console.log("feeVaultAta:", walletConfigSafe.value.feeVaultAta)
+  console.log("disputeVaultAta:", walletConfigSafe.value.disputeVaultAta)
+  console.log("feePlatformBps:", walletConfigSafe.value.feePlatformBps)
+  console.log("disputeFeeBps:", walletConfigSafe.value.disputeFeeBps)
+  console.log("feeWallet:", walletConfigSafe.value.feeWallet)
+  console.log("admin1:", walletConfigSafe.value.admin1)
+  console.log("admin2:", walletConfigSafe.value.admin2)
 
   const checks = {
-    programId: isPlaceholderKey(walletConfig.value.programId),
-    usdcMint: isPlaceholderKey(walletConfig.value.usdcMint),
-    feeWallet: isPlaceholderKey(walletConfig.value.feeWallet),
-    admin1: isPlaceholderKey(walletConfig.value.admin1),
-    admin2: isPlaceholderKey(walletConfig.value.admin2),
+    programId: isPlaceholderKey(walletConfigSafe.value.programId),
+    usdcMint: isPlaceholderKey(walletConfigSafe.value.usdcMint),
+    rpcUrl: !walletConfigSafe.value.rpcUrl,
+    chain: !walletConfigSafe.value.chain,
+    feeVaultAta: isPlaceholderKey(walletConfigSafe.value.feeVaultAta),
+    disputeVaultAta: isPlaceholderKey(walletConfigSafe.value.disputeVaultAta),
+    feePlatformBps: !Number.isFinite(Number(walletConfigSafe.value.feePlatformBps)),
   }
 
   console.table(checks)
@@ -292,7 +284,7 @@ function closeCreateContract() {
 }
 
 function createContractSuccess(contract) {
-  activeContracts.value.push(contract)
+  if (contract) contractsStore.upsert(contract)
   showCreateContract.value = false
 }
 
@@ -313,7 +305,7 @@ async function handleContractUpdated() {
   const currentId = previewContract.value.uuid || previewContract.value.id
   if (!currentId) return
 
-  const updated = activeContracts.value.find(
+  const updated = contractsStore.items.find(
     (contract) => contract.uuid === currentId || contract.id === currentId,
   )
   if (updated) previewContract.value = updated
@@ -324,11 +316,6 @@ async function handleContractUpdated() {
 // ==========================
 function handleConnected() {
   showAuth.value = false
-  loadWalletConfig()
-  refreshWalletGuard()
-  loadMyContracts()
-  loadMessagingData()
-  loadProfile()
 }
 
 async function handleSelectConversation(conversationId) {
@@ -379,7 +366,7 @@ watch(
     } else {
       conversationStore.reset()
       profileStore.reset()
-      activeContracts.value = []
+      contractsStore.reset()
       activeTab.value = "Overview"
     }
   },
@@ -407,9 +394,9 @@ watch(
 
 watch(
   [
-    () => walletConfig.value.rpcUrl,
-    () => walletConfig.value.usdcMint,
-    () => walletConfig.value.network,
+    () => walletConfigSafe.value.rpcUrl,
+    () => walletConfigSafe.value.usdcMint,
+    () => walletConfigSafe.value.chain,
   ],
   () => {
     if (auth.isLogged) refreshWalletGuard()
@@ -439,7 +426,7 @@ watch(
       </div>
       <div class="wallet-guard-row">
         <span>Réseau</span>
-        <span>{{ phantomNetwork || walletConfig.network }}</span>
+        <span>{{ phantomNetwork || walletConfigSafe.chain }}</span>
       </div>
       <div class="wallet-guard-row">
         <span>USDC</span>
@@ -523,36 +510,41 @@ watch(
          MODAL : CREATE CONTRACT
     ========================== -->
     <div v-if="showCreateContract" class="overlay" @click.self="closeCreateContract">
-      <ContractCreationModal
-        :employers="friendOptions"
-        :freelancer-wallet="freelancerWallet"
-        :program-id="programId"
-        :usdc-mint="usdcMint"
-        :rpc-url="walletConfig.rpcUrl"
-        :network="walletConfig.network"
-        :fee-wallet="walletConfig.feeWallet"
-        :admin1="walletConfig.admin1"
-        :admin2="walletConfig.admin2"
-        @created="createContractSuccess"
-        @close="closeCreateContract"
-      />
+     <ContractCreationModal
+  :employers="friendOptions"
+  :program-id="walletConfigSafe.programId"
+  :usdc-mint="walletConfigSafe.usdcMint"
+  :rpc-url="walletConfigSafe.rpcUrl"
+  :chain="walletConfigSafe.chain"
+  :fee-vault-ata="walletConfigSafe.feeVaultAta"
+  :dispute-vault-ata="walletConfigSafe.disputeVaultAta"
+  :fee-platform-bps="walletConfigSafe.feePlatformBps"
+  :dispute-fee-bps="walletConfigSafe.disputeFeeBps"
+  :fee-wallet="walletConfigSafe.feeWallet"
+  :admin1="walletConfigSafe.admin1"
+  :admin2="walletConfigSafe.admin2"
+  @created="createContractSuccess"
+  @close="closeCreateContract"
+/>
+
     </div>
 
     <!-- ==========================
          MODAL : PREVIEW CONTRACT
     ========================== -->
     <div v-if="showContractViewer" class="overlay" @click.self="closeContractPreview">
-      <ContractPreviewModal
-        :contract="previewContract"
-        :program-id="programId"
-        :usdc-mint="usdcMint"
-        :rpc-url="walletConfig.rpcUrl"
-        :fee-wallet="walletConfig.feeWallet"
-        :admin1="walletConfig.admin1"
-        :admin2="walletConfig.admin2"
-        @updated="handleContractUpdated"
-        @close="closeContractPreview"
-      />
+     <ContractPreviewModal
+  :contract="previewContract"
+  :program-id="walletConfigSafe.programId"
+  :usdc-mint="walletConfigSafe.usdcMint"
+  :rpc-url="walletConfigSafe.rpcUrl"
+  :fee-wallet="walletConfigSafe.feeWallet"
+  :admin1="walletConfigSafe.admin1"
+  :admin2="walletConfigSafe.admin2"
+  @updated="handleContractUpdated"
+  @close="closeContractPreview"
+/>
+
     </div>
   </div>
 </template>

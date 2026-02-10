@@ -1,4 +1,5 @@
-import { getConnection, getUsdcBalance } from "../services/solana"
+import { getConnection } from "../solana/connection"
+import { getUsdcBalance } from "../solana/usdc"
 import { ensurePhantom } from "./phantom"
 
 export async function loadUsdcBalance({ props, usdcMintMissing, txStatus, usdcBalance, auth, walletAddress }) {

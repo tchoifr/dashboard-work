@@ -1,8 +1,9 @@
-<!-- src/components/AuthSolana.vue (ou ton fichier actuel) -->
+<!-- src/components/AuthSolana.vue -->
 <script setup>
 import { ref } from "vue"
 import { useAuthStore } from "../store/auth"
-import { connectPhantom, getPhantomProvider } from "../services/solana"
+import { AUTH_ERROR_CODES } from "../auth/errors"
+import { WALLET_ERROR_CODES } from "../solana/phantom"
 
 const auth = useAuthStore()
 const emit = defineEmits(["connected"])
@@ -10,46 +11,45 @@ const emit = defineEmits(["connected"])
 const mode = ref("login") // "login" | "register"
 const username = ref("")
 const status = ref("")
+const uiError = ref("")
+const uiErrorDetails = ref("")
 
 async function handleProceed() {
   try {
     status.value = "Connexion à Phantom..."
-
-    const phantom = getPhantomProvider()
-    if (!phantom) {
-      alert("Installe ou active Phantom.")
-      status.value = ""
-      return
-    }
-
-    // (Optionnel) tu peux laisser connectPhantom ici, même si le store le refait.
-    // Ça donne un feedback plus immédiat côté UI.
-    await connectPhantom()
-
-    status.value = mode.value === "register" ? "Vérification du compte..." : "Vérification du compte..."
+    uiError.value = ""
+    uiErrorDetails.value = ""
 
     const res = await auth.loginWithWallet({
       username: mode.value === "register" ? username.value : null,
-      mode: mode.value, // "login" | "register"
-      // onUsernameTaken: () => { ... } // pas nécessaire ici, on le gère en catch
+      mode: mode.value,
     })
 
-    emit("connected", {
-      token: res.token,
-      user: res.user,
-    })
+    emit("connected", { token: res.token, user: res.user })
   } catch (e) {
-    console.error(e)
     const msg = e?.message || "Erreur lors de la connexion."
-    alert(msg)
+    const code = e?.code
+    const expectedWalletFlowError =
+      code === WALLET_ERROR_CODES.CONNECT_REJECTED ||
+      code === WALLET_ERROR_CODES.REQUEST_PENDING ||
+      code === WALLET_ERROR_CODES.SIGN_REJECTED
 
-    // UX: si wallet déjà utilisé en mode register -> on repasse en login
-    if (msg.includes("déjà un compte") || msg.includes("already exists")) {
+    if (!expectedWalletFlowError) {
+      console.error(e)
+    }
+    uiError.value = msg
+    const rawCode = e?.cause?.code ?? e?.code ?? null
+    const rawMessage = e?.cause?.message || e?.message || ""
+    uiErrorDetails.value =
+      rawCode !== null && rawCode !== undefined
+        ? `code=${rawCode} | ${rawMessage}`
+        : rawMessage
+
+    if (code === AUTH_ERROR_CODES.ACCOUNT_EXISTS) {
       mode.value = "login"
     }
 
-    // si pas de compte en login -> proposer register
-    if (msg.includes("Aucun compte") || msg.includes("not found")) {
+    if (code === AUTH_ERROR_CODES.ACCOUNT_NOT_FOUND) {
       mode.value = "register"
     }
   } finally {
@@ -61,7 +61,9 @@ async function handleProceed() {
 <template>
   <section class="auth">
     <div class="card">
-      <div class="icon"><img style="width: 100%;" src="../assets/byhnexLogo.png" alt=""></div>
+      <div class="icon">
+        <img style="width: 100%" src="../assets/byhnexLogo.png" alt="" />
+      </div>
 
       <h1>Byhnex</h1>
       <p class="lead">Connecte-toi ou crée un compte via Phantom.</p>
@@ -71,11 +73,13 @@ async function handleProceed() {
         <input type="text" v-model="username" placeholder="ex: Mina Chen" />
       </div>
 
-      <button class="btn primary" @click="handleProceed">
+      <button class="btn primary" :disabled="auth.loading" @click="handleProceed">
         {{ mode === "login" ? "Connecter Phantom" : "Créer mon compte" }}
       </button>
 
       <p v-if="status" class="status">{{ status }}</p>
+      <p v-if="uiError" class="error">{{ uiError }}</p>
+      <p v-if="uiErrorDetails" class="error-details">{{ uiErrorDetails }}</p>
 
       <button class="link" v-if="mode === 'login'" @click="mode = 'register'">
         Créer un compte
@@ -100,9 +104,7 @@ async function handleProceed() {
   width: min(560px, 100%);
   background: linear-gradient(150deg, rgba(8, 12, 24, 0.96), rgba(10, 17, 32, 0.94));
   border: 1px solid rgba(120, 90, 255, 0.35);
-  box-shadow:
-    0 20px 48px rgba(0, 0, 0, 0.35),
-    0 0 22px rgba(120, 90, 255, 0.2),
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.35), 0 0 22px rgba(120, 90, 255, 0.2),
     inset 0 0 0 1px rgba(255, 255, 255, 0.04);
   border-radius: 20px;
   padding: 32px 28px;
@@ -132,13 +134,6 @@ async function handleProceed() {
   place-items: center;
   border: 1px solid rgba(120, 90, 255, 0.45);
   box-shadow: 0 15px 30px rgba(0, 0, 0, 0.4), 0 0 18px rgba(120, 90, 255, 0.32);
-}
-
-.icon span {
-  color: #e8f5ff;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 
 h1 {
@@ -190,7 +185,12 @@ h1 {
   transition: 0.1s ease;
 }
 
-.btn.primary:hover {
+.btn.primary:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.btn.primary:hover:not(:disabled) {
   transform: translateY(-1px);
   box-shadow: 0 20px 40px rgba(0, 102, 255, 0.42);
 }
@@ -199,6 +199,22 @@ h1 {
   color: #8ad4ff;
   font-weight: 700;
   margin: 6px 0 0;
+}
+
+.error {
+  color: #ff9db1;
+  font-weight: 700;
+  text-align: center;
+  margin: 6px 0 0;
+}
+
+.error-details {
+  color: #f2b6c2;
+  text-align: center;
+  margin: 4px 0 0;
+  font-size: 12px;
+  opacity: 0.9;
+  word-break: break-word;
 }
 
 .link {

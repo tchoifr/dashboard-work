@@ -36,3 +36,18 @@ npm run dev
 ```sh
 npm run build
 ```
+
+## Solana Auth And CLI
+
+- Frontend auth (browser): uses injected wallet provider (Phantom), never `solana-cli`.
+- CLI / local ops (terminal): use `solana-cli` for wallet/rpc checks and scripts.
+
+```sh
+npm run solana:doctor
+```
+
+This prints:
+- `solana-cli` version
+- active Solana config (RPC + keypair path)
+- active wallet address
+- wallet balance

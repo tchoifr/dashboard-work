@@ -1,3 +1,4 @@
+<!-- src/components/ContractCreationModal.vue -->
 <script setup>
 import { onBeforeUnmount, onMounted, ref } from "vue"
 
@@ -7,11 +8,15 @@ import { loadUsdcBalance } from "../contract/usdc"
 import { submitForm as submitFormAction } from "../contract/submit"
 
 const props = defineProps({
-  employers: Array,
+  employers: { type: Array, default: () => [] }, // ⚠️ ici ce sont tes freelances sélectionnables
   programId: String,
   usdcMint: String,
-  network: String,
+  chain: String,
   rpcUrl: String,
+  feeVaultAta: String,
+  disputeVaultAta: String,
+  feePlatformBps: Number,
+  disputeFeeBps: Number,
   feeWallet: String,
   admin1: String,
   admin2: String,
@@ -79,17 +84,13 @@ onBeforeUnmount(() => {
 })
 </script>
 
-
 <template>
-  <!-- ✅ template inchangé -->
   <div class="modal">
     <header class="modal-head">
       <div>
         <p class="eyebrow">New contract</p>
         <h3>Generate a smart contract</h3>
-        <p class="muted">
-          Set financial details and validation checkpoints to launch escrow.
-        </p>
+        <p class="muted">Set financial details and validation checkpoints to launch escrow.</p>
       </div>
       <button class="close" type="button" @click="close">x</button>
     </header>
@@ -101,21 +102,32 @@ onBeforeUnmount(() => {
       </label>
 
       <label class="field">
-        <span>Assign to</span>
+        <span>Freelancer</span>
         <div class="select-shell">
           <select v-model="form.employer">
-            <option disabled value="">Select a client</option>
+            <option disabled value="">Select a freelancer</option>
             <option v-for="client in employers" :key="client.uuid" :value="client">
-              {{ client.label }}
+              {{ client.label || client.username || client.wallet_address }}
             </option>
           </select>
+        </div>
+
+        <div v-if="form.employer" class="muted" style="margin-top: 6px; font-size: 12px;">
+          <div><b>UUID:</b> {{ form.employer.uuid }}</div>
+          <div><b>Wallet:</b> {{ form.employer.wallet_address || form.employer.walletAddress }}</div>
         </div>
       </label>
 
       <label class="field full">
         <span>Amount (USDC)</span>
-        <input v-model="form.amountUsdc" type="number" min="0" step="0.000001" placeholder="e.g., 2500" />
-        <p class="muted">USDC Balance: {{ usdcBalance.toFixed(2) }} USDC</p>
+        <input
+          v-model="form.amountUsdc"
+          type="number"
+          min="0"
+          step="0.000001"
+          placeholder="e.g., 2500"
+        />
+        <p class="muted">USDC Balance: {{ Number(usdcBalance || 0).toFixed(2) }} USDC</p>
       </label>
 
       <div class="field date-grid">
@@ -203,13 +215,12 @@ select {
 
 .modal {
   width: min(640px, 100%);
-  background: radial-gradient(circle at 20% 20%, rgba(120, 90, 255, 0.15), transparent 45%), rgba(6, 10, 24, 0.95);
+  background: radial-gradient(circle at 20% 20%, rgba(120, 90, 255, 0.15), transparent 45%),
+    rgba(6, 10, 24, 0.95);
   border-radius: 22px;
   border: 1px solid rgba(120, 90, 255, 0.35);
   padding: 20px;
-  box-shadow:
-    0 30px 60px rgba(0, 0, 0, 0.6),
-    0 0 28px rgba(120, 90, 255, 0.35);
+  box-shadow: 0 30px 60px rgba(0, 0, 0, 0.6), 0 0 28px rgba(120, 90, 255, 0.35);
   display: flex;
   flex-direction: column;
   gap: 16px;

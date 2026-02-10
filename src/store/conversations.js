@@ -1,6 +1,12 @@
 // src/store/conversations.js
 import { defineStore } from "pinia"
-import api from "../services/api"
+import { listFriends } from "../services/friendsApi"
+import {
+  createPrivateConversation as createPrivateConversationApi,
+  listConversations,
+  getConversationMessages,
+} from "../services/conversationsApi"
+import { createMessage, deleteMessage as deleteMessageApi } from "../services/messagesApi"
 import { useAuthStore } from "./auth"
 
 const normalizeId = (v) => String(v ?? "")
@@ -107,7 +113,7 @@ export const useConversationStore = defineStore("conversations", {
 
       this.loadingFriends = true
       try {
-        const { data } = await api.get("/friends")
+        const data = await listFriends()
         this.friends = Array.isArray(data) ? data : []
       } catch (e) {
         console.error("fetchFriends failed", e?.response?.status, e?.response?.data || e)
@@ -126,7 +132,7 @@ export const useConversationStore = defineStore("conversations", {
 
       this.loadingConversations = true
       try {
-        const { data } = await api.get("/conversations")
+        const data = await listConversations()
         this.conversations = Array.isArray(data) ? data : []
       } catch (e) {
         console.error("fetchConversations failed", e?.response?.status, e?.response?.data || e)
@@ -141,7 +147,7 @@ export const useConversationStore = defineStore("conversations", {
       if (!auth.token) return
 
       try {
-        const { data } = await api.post("/conversations/private", { user_id: friendUuid })
+        const data = await createPrivateConversationApi(friendUuid)
         const id = normalizeId(data?.id)
         if (!id) throw new Error("Conversation id manquant")
 
@@ -169,7 +175,7 @@ export const useConversationStore = defineStore("conversations", {
       const id = normalizeId(conversationId)
       this.loadingMessages = true
       try {
-        const { data } = await api.get(`/conversations/${id}/messages`)
+        const data = await getConversationMessages(id)
         const arr = Array.isArray(data) ? data : []
 
         this.messagesByConversation[id] = arr.map((m) => ({
@@ -225,7 +231,7 @@ export const useConversationStore = defineStore("conversations", {
 
       this.sendingMessage = true
       try {
-        const { data } = await api.post("/messages", {
+        const data = await createMessage({
           conversation_id: conversationId,
           body: content,
         })
@@ -266,7 +272,7 @@ export const useConversationStore = defineStore("conversations", {
 
       this.deletingMessageIds.add(id)
       try {
-        await api.delete(`/messages/${id}`)
+        await deleteMessageApi(id)
 
         const convId = normalizeId(this.activeConversationId)
         const arr = this.messagesByConversation[convId] || []

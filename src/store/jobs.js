@@ -1,6 +1,16 @@
 // src/store/jobs.js
 import { defineStore } from "pinia"
-import api from "../services/api"
+import {
+  createJob as createJobApi,
+  listMyJobs,
+  listJobs,
+  updateJob as updateJobApi,
+  deleteJob as deleteJobApi,
+  publishJob as publishJobApi,
+  withdrawJob as withdrawJobApi,
+  applyToJob as applyToJobApi,
+  listJobApplications,
+} from "../services/jobsApi"
 import { useAuthStore } from "./auth"
 
 const toIsoLabel = (iso) => {
@@ -95,7 +105,7 @@ export const useJobsStore = defineStore("jobs", {
       this.loadingMine = true
       this.error = null
       try {
-        const { data } = await api.get("/me/jobs")
+        const data = await listMyJobs()
         this.myJobs = Array.isArray(data) ? data.map(normalizeJob) : []
       } catch (e) {
         this.error = e?.response?.data?.message || e.message || "Failed to load my jobs"
@@ -118,14 +128,12 @@ export const useJobsStore = defineStore("jobs", {
       this.loadingJobs = true
       this.error = null
       try {
-        const { data } = await api.get("/jobs", {
-          params: {
-            q: q || undefined,
-            page,
-            limit,
-            sort,
-            ...(params.filters || {}),
-          },
+        const data = await listJobs({
+          q: q || undefined,
+          page,
+          limit,
+          sort,
+          ...(params.filters || {}),
         })
 
         const items = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : []
@@ -169,7 +177,7 @@ export const useJobsStore = defineStore("jobs", {
       this.saving = true
       this.error = null
       try {
-        const { data } = await api.post("/jobs", payload)
+        const data = await createJobApi(payload)
         const created = normalizeJob(data)
         this.upsertMyJob(created)
         return created
@@ -191,7 +199,7 @@ export const useJobsStore = defineStore("jobs", {
       this.saving = true
       this.error = null
       try {
-        const { data } = await api.patch(`/jobs/${id}`, patch)
+        const data = await updateJobApi(id, patch)
         const updated = normalizeJob(data)
         this.upsertMyJob(updated)
         return updated
@@ -211,7 +219,7 @@ export const useJobsStore = defineStore("jobs", {
       this.saving = true
       this.error = null
       try {
-        await api.delete(`/jobs/${id}`)
+        await deleteJobApi(id)
         this.myJobs = this.myJobs.filter((j) => j.id !== id)
       } catch (e) {
         this.error = e?.response?.data?.message || e.message || "Failed to delete job"
@@ -229,7 +237,7 @@ export const useJobsStore = defineStore("jobs", {
       this.saving = true
       this.error = null
       try {
-        const { data } = await api.patch(`/jobs/${id}/publish`)
+        const data = await publishJobApi(id)
 
         // Certaines API renvoient 204/empty body -> on met à jour localement
         let updated = normalizeJob(data)
@@ -262,7 +270,7 @@ export const useJobsStore = defineStore("jobs", {
       this.saving = true
       this.error = null
       try {
-        const { data } = await api.patch(`/jobs/${id}/withdraw`)
+        const data = await withdrawJobApi(id)
 
         // Même logique que publish: fallback si réponse vide
         let updated = normalizeJob(data)
@@ -295,7 +303,7 @@ export const useJobsStore = defineStore("jobs", {
       this.saving = true
       this.error = null
       try {
-        const { data } = await api.post(`/jobs/${jobId}/apply`, {})
+        const data = await applyToJobApi(jobId)
         return data
       } catch (e) {
         const status = e?.response?.status
@@ -315,7 +323,7 @@ export const useJobsStore = defineStore("jobs", {
       this.applicantsByJobId[jobId] = { loading: true, error: null, items: [] }
 
       try {
-        const { data } = await api.get(`/jobs/${jobId}/applications`)
+        const data = await listJobApplications(jobId)
         this.applicantsByJobId[jobId] = {
           loading: false,
           error: null,

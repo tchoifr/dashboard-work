@@ -1,8 +1,10 @@
-// src/store/auth.js (Pinia)
+// src/store/auth.js
 import { defineStore } from "pinia"
-import publicApi from "../services/publicApi"
+import { authNonce, authVerify } from "../services/authApi"
 import bs58 from "bs58"
-import { DEFAULT_CHAIN, connectPhantom, getPhantomProvider } from "../services/solana"
+import { connectPhantom, signMessageWithPhantom } from "../solana/phantom"
+import { useWalletConfigStore } from "./walletConfig"
+import { AUTH_ERROR_CODES, makeAuthError } from "../auth/errors"
 
 export const useAuthStore = defineStore("auth", {
   state: () => ({
@@ -16,6 +18,7 @@ export const useAuthStore = defineStore("auth", {
     })(),
     loading: false,
     error: null,
+    errorCode: null,
   }),
 
   getters: {
@@ -30,61 +33,80 @@ export const useAuthStore = defineStore("auth", {
     async loginWithWallet({ username = null, mode = "login" }) {
       this.loading = true
       this.error = null
+      this.errorCode = null
 
       try {
-        const phantom = getPhantomProvider()
-        if (!phantom) throw new Error("Phantom non détecté")
-
-        // 1) Connect wallet
-        const { publicKey } = await connectPhantom()
+        // 0) Connect wallet first to keep browser user-gesture context
+        const { provider, publicKey } = await connectPhantom()
         const walletAddress = publicKey?.toBase58()
-        if (!walletAddress) throw new Error("Wallet introuvable")
+        if (!walletAddress) {
+          throw makeAuthError(AUTH_ERROR_CODES.WALLET_MISSING, "Wallet introuvable.")
+        }
 
-        // 2) Ask nonce
-        const { data: nonceData } = await publicApi.post("/auth/nonce", {
-          walletAddress,
-          chain: DEFAULT_CHAIN,
-        })
+        // 1) config publique
+        const walletConfigStore = useWalletConfigStore()
+        const walletConfig = await walletConfigStore.fetchWalletConfig({ auth: false })
+        const chain = walletConfig?.chain
+        if (!chain) {
+          throw makeAuthError(
+            AUTH_ERROR_CODES.CHAIN_MISSING,
+            "Chain manquante depuis /wallet/config.",
+          )
+        }
 
-        // Backend -> { nonce, accountExists }
-        const accountExists = nonceData.accountExists === true
-        const nonce = nonceData.nonce
-
-        if (!nonce) throw new Error("Nonce manquant depuis le backend")
+        // 2) Ask nonce (public)
+        const nonceData = await authNonce(walletAddress, chain)
+        const accountExists = nonceData?.accountExists === true
+        const nonce = nonceData?.nonce
+        if (!nonce) {
+          throw makeAuthError(AUTH_ERROR_CODES.NONCE_MISSING, "Nonce manquant depuis le backend.")
+        }
 
         // 3) UX rules (block BEFORE signing)
         if (mode === "register" && accountExists) {
-          // IMPORTANT: on ne signe pas, on ne call pas /auth/verify
-          throw new Error("Ce wallet a déjà un compte. Passe en mode connexion.")
+          throw makeAuthError(
+            AUTH_ERROR_CODES.ACCOUNT_EXISTS,
+            "Ce wallet a deja un compte. Passe en mode connexion.",
+          )
         }
-
         if (mode === "login" && !accountExists) {
-          throw new Error("Aucun compte trouvé pour ce wallet. Crée un compte.")
+          throw makeAuthError(
+            AUTH_ERROR_CODES.ACCOUNT_NOT_FOUND,
+            "Aucun compte trouve pour ce wallet. Cree un compte.",
+          )
         }
 
-        // 4) Build message & sign
+        // 4) Build message & sign (avec provider de connect)
         const message = `Login nonce: ${nonce}`
         const encoded = new TextEncoder().encode(message)
 
-        const signed = await phantom.signMessage(encoded, "utf8")
+        const signed = await signMessageWithPhantom(provider, encoded)
+
         const sigBytes = signed?.signature || signed
         const signatureBase58 = bs58.encode(sigBytes)
 
-        // 5) Verify signature -> create/login + return JWT
-        const { data: verifyData } = await publicApi.post("/auth/verify", {
+        // 5) Verify signature -> create/login + return JWT (public)
+        const verifyData = await authVerify({
           walletAddress,
           signature: signatureBase58,
-          nonce, // utile si le user n'existe pas encore (dans ton back)
+          nonce,
           username: mode === "register" ? (username || walletAddress) : undefined,
-          chain: DEFAULT_CHAIN,
-          mode, // (optionnel: si tu veux renforcer côté back plus tard)
+          chain,
+          mode,
         })
 
-        this.token = verifyData.token
+        this.token = verifyData?.token || null
         this.user = {
-          ...(verifyData.user || {}),
+          ...(verifyData?.user || {}),
           walletAddress,
-          chain: DEFAULT_CHAIN,
+          chain,
+        }
+
+        if (!this.token) {
+          throw makeAuthError(
+            AUTH_ERROR_CODES.TOKEN_MISSING,
+            "Token manquant dans la reponse /auth/verify.",
+          )
         }
 
         localStorage.setItem("token", this.token)
@@ -93,6 +115,7 @@ export const useAuthStore = defineStore("auth", {
         return verifyData
       } catch (e) {
         this.error = e?.message || "Erreur d’authentification"
+        this.errorCode = e?.code || null
         throw e
       } finally {
         this.loading = false
@@ -103,6 +126,7 @@ export const useAuthStore = defineStore("auth", {
       this.token = null
       this.user = null
       this.error = null
+      this.errorCode = null
       localStorage.removeItem("token")
       localStorage.removeItem("user")
     },

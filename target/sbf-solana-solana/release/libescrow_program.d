@@ -1,1 +1,0 @@
-/home/frgiorgi/Projets/perso/projectweb3/dashboard-work/target/sbf-solana-solana/release/libescrow_program.rlib: /home/frgiorgi/Projets/perso/projectweb3/dashboard-work/programs/escrow_program/src/lib.rs

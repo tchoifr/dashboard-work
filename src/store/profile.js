@@ -1,6 +1,6 @@
 // src/store/profile.js
 import { defineStore } from "pinia"
-import api from "../services/api"
+import { getMyProfile, updateMyProfile } from "../services/profileApi"
 import { useAuthStore } from "./auth"
 
 const empty = (fallbackName = "") => ({
@@ -40,7 +40,7 @@ export const useProfileStore = defineStore("profile", {
       this.loading = true
       this.error = null
       try {
-        const { data } = await api.get("/profiles/me")
+        const data = await getMyProfile()
 
         // API renvoie soit draft (id null), soit profil existant
         this.profile = {
@@ -80,7 +80,7 @@ export const useProfileStore = defineStore("profile", {
       this.saving = true
       this.error = null
       try {
-        const { data } = await api.put("/profiles/me", payload)
+        const data = await updateMyProfile(payload)
 
         this.profile = {
           ...empty(auth.user?.username),

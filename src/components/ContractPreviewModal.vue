@@ -1,21 +1,13 @@
 <!-- src/components/ContractPreviewModal.vue -->
 <script setup>
 import { computed, ref } from "vue"
-import { PublicKey } from "@solana/web3.js"
-
-import api from "../services/api"
 import { useAuthStore } from "../store/auth"
 
-import {
-  connectPhantom,
-  getAnchorProvider,
-  getConnection,
-  getPhantomProvider,
-  loadProgram,
-  openDispute,
-} from "../services/solana"
-
-import rawIdl from "../idl/escrow_program.json"
+import { useContractPreviewSelectors } from "../createContract/selectors"
+import { useContractPreviewLabels } from "../createContract/formatters"
+import { useContractPreviewPermissions } from "../createContract/permissions"
+import { createWithAction } from "../createContract/withAction"
+import { createHandleDispute } from "../createContract/disputeAction"
 
 const props = defineProps({
   contract: { type: Object, required: true },
@@ -32,143 +24,63 @@ const auth = useAuthStore()
 const loading = ref(false)
 const txStatus = ref("")
 
-const pick = (keys) => keys.map((k) => props.contract?.[k]).find((v) => v != null)
+// -------------------------
+// selectors (pick + computed base)
+// -------------------------
+const {
+  pick,
+  contractUuid,
+  status,
+  escrowStatePda,
+  employerWallet,
+  freelancerWallet,
+  admin1Wallet,
+  admin2Wallet,
+  programId,
+  startAt,
+  endAt,
+  createdAt,
+} = useContractPreviewSelectors(props)
 
-/** ✅ contract uuid (ton controller utilise {uuid}) */
-const contractUuid = computed(() => pick(["uuid"]))
-
-/** status en majuscule */
-const status = computed(() => String(pick(["status"]) || "").toUpperCase())
-
-/** PDAs */
-const escrowStatePda = computed(() => pick(["escrowStatePda", "escrow_state_pda"]))
-
-/** wallets (ton serializer renvoie employer/freelancer objects) */
-const employerWallet = computed(() => props.contract?.employer?.walletAddress || pick(["employerWallet", "employer_wallet"]))
-const freelancerWallet = computed(() => props.contract?.freelancer?.walletAddress || pick(["freelancerWallet", "freelancer_wallet"]))
-
-const admin1Wallet = computed(() => props.admin1 || pick(["adminOneWallet", "admin_one_wallet", "admin1"]))
-const admin2Wallet = computed(() => props.admin2 || pick(["adminTwoWallet", "admin_two_wallet", "admin2"]))
-const programId = computed(() => props.programId || pick(["programId", "program_id"]))
-
-const isEmployer = computed(() => !!auth.user?.walletAddress && auth.user.walletAddress === employerWallet.value)
-const isFreelancer = computed(() => !!auth.user?.walletAddress && auth.user.walletAddress === freelancerWallet.value)
-const isAdmin = computed(() => {
-  const w = auth.user?.walletAddress
-  if (!w) return false
-  return w === admin1Wallet.value || w === admin2Wallet.value
+// -------------------------
+// permissions (isEmployer/isFreelancer/isAdmin + canDispute)
+// -------------------------
+const { isEmployer, isFreelancer, isAdmin, canDispute } = useContractPreviewPermissions({
+  auth,
+  employerWallet,
+  freelancerWallet,
+  admin1Wallet,
+  admin2Wallet,
+  status,
 })
 
-/** règles */
-const canDispute = computed(() =>
-  (isEmployer.value || isFreelancer.value) &&
-  ["IN_PROGRESS", "DONE_PENDING", "READY_TO_RELEASE"].includes(status.value)
-)
-
-/** ✅ format date en anglais (UK) */
-function formatDateEn(value) {
-  if (!value) return "-"
-  const d = new Date(value) // ISO DATE_ATOM -> OK
-  if (Number.isNaN(d.getTime())) return "-"
-  return new Intl.DateTimeFormat("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  }).format(d)
-}
-
-/** dates ISO renvoyées par ton serializer */
-const startAt = computed(() => pick(["startAt", "start_at"]))
-const endAt = computed(() => pick(["endAt", "end_at"]))
-const createdAt = computed(() => pick(["createdAt", "created_at"]))
-
-const createdAtLabel = computed(() => formatDateEn(createdAt.value))
-
-const periodLabel = computed(() => {
-  const s = formatDateEn(startAt.value)
-  const e = formatDateEn(endAt.value)
-  if (s === "-" && e === "-") return "-"
-  return `${s} → ${e}`
+// -------------------------
+// labels (format date / amount / checkpoints / period)
+// -------------------------
+const { createdAtLabel, periodLabel, humanAmount, checkpointsLabel } = useContractPreviewLabels({
+  pick,
+  startAt,
+  endAt,
+  createdAt,
 })
 
-const humanAmount = computed(() => {
-  const amount = pick(["amountUsdc", "amount_usdc", "amount"])
-  if (amount == null) return "-"
-  return `${Number(amount).toFixed(2)} USDC`
+// -------------------------
+// action wrapper (withAction)
+// -------------------------
+const withAction = createWithAction({ loading, txStatus })
+
+// -------------------------
+// dispute handler
+// -------------------------
+const handleDispute = createHandleDispute({
+  props,
+  emit,
+  auth,
+  withAction,
+  contractUuid,
+  escrowStatePda,
+  programId,
 })
-
-const checkpointsLabel = computed(() => {
-  const checkpoints = pick(["checkpoints"])
-  if (Array.isArray(checkpoints)) return checkpoints.filter(Boolean).join("\n")
-  return checkpoints || "No checkpoints provided."
-})
-
-const ensurePhantom = async () => {
-  const phantom = getPhantomProvider()
-  if (!phantom) throw new Error("Phantom not detected.")
-  const { publicKey } = await connectPhantom()
-  if (!publicKey) throw new Error("Wallet not found.")
-  const expectedWallet = auth.user?.walletAddress
-  const connectedWallet = publicKey.toBase58()
-  if (expectedWallet && expectedWallet !== connectedWallet) {
-    throw new Error("Phantom wallet is different from the connected account.")
-  }
-  return { phantom, publicKey }
-}
-
-const getProgramContext = async ({ phantom, publicKey }) => {
-  if (!programId.value) throw new Error("Missing programId.")
-  const connection = getConnection(props.rpcUrl)
-  const wallet = {
-    publicKey,
-    signTransaction: phantom.signTransaction.bind(phantom),
-    signAllTransactions: phantom.signAllTransactions.bind(phantom),
-  }
-  const provider = getAnchorProvider(connection, wallet)
-  const program = loadProgram(rawIdl, programId.value, provider)
-  return { program }
-}
-
-const toPublicKeyStrict = (value, label) => {
-  if (!value) throw new Error(`${label} missing.`)
-  return new PublicKey(value)
-}
-
-const notifyBackendDispute = async (signature) => {
-  if (!contractUuid.value) throw new Error("Missing contract uuid.")
-  await api.post(`/contracts/${contractUuid.value}/dispute`, { txSig: signature })
-  emit("updated")
-}
-
-const withAction = async (label, action) => {
-  try {
-    loading.value = true
-    txStatus.value = label
-    const sig = await action()
-    txStatus.value = "Transaction sent."
-    return sig
-  } catch (e) {
-    console.error(label, e)
-    alert(e?.message || "Transaction failed.")
-  } finally {
-    loading.value = false
-  }
-}
-
-const handleDispute = () =>
-  withAction("Signing dispute...", async () => {
-    const ctx = await ensurePhantom()
-    const { program } = await getProgramContext(ctx)
-
-    const signature = await openDispute({
-      program,
-      signer: ctx.publicKey,
-      escrowStatePda: toPublicKeyStrict(escrowStatePda.value, "escrow_state_pda"),
-    })
-
-    await notifyBackendDispute(signature)
-    return signature
-  })
 </script>
 
 <template>
@@ -229,7 +141,6 @@ const handleDispute = () =>
     </section>
   </div>
 </template>
-
 
 <style scoped>
 .modal {
