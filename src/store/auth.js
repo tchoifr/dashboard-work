@@ -1,8 +1,7 @@
-// src/store/auth.js
 import { defineStore } from "pinia"
 import { authNonce, authVerify } from "../services/authApi"
 import bs58 from "bs58"
-import { connectPhantom, signMessageWithPhantom } from "../solana/phantom"
+import { connectPhantom, signMessageWithPhantom, WALLET_ERROR_CODES } from "../solana/phantom"
 import { useWalletConfigStore } from "./walletConfig"
 import { AUTH_ERROR_CODES, makeAuthError } from "../auth/errors"
 
@@ -19,6 +18,9 @@ export const useAuthStore = defineStore("auth", {
     loading: false,
     error: null,
     errorCode: null,
+
+    // 🔒 lock interne anti double-submit
+    _inFlight: false,
   }),
 
   getters: {
@@ -30,20 +32,29 @@ export const useAuthStore = defineStore("auth", {
     /**
      * mode: "login" | "register"
      */
-    async loginWithWallet({ username = null, mode = "login" }) {
+    async loginWithWallet({ username = null, mode = "login" } = {}) {
+      // 🛑 garde-fou absolu
+      if (this.loading || this._inFlight) {
+        throw makeAuthError(
+          WALLET_ERROR_CODES.REQUEST_PENDING,
+          "Une demande Phantom est déjà en cours. Valide ou ferme la popup Phantom.",
+        )
+      }
+
       this.loading = true
+      this._inFlight = true
       this.error = null
       this.errorCode = null
 
       try {
-        // 0) Connect wallet first to keep browser user-gesture context
+        // 0) Connect Phantom (user-gesture conservé)
         const { provider, publicKey } = await connectPhantom()
         const walletAddress = publicKey?.toBase58()
         if (!walletAddress) {
           throw makeAuthError(AUTH_ERROR_CODES.WALLET_MISSING, "Wallet introuvable.")
         }
 
-        // 1) config publique
+        // 1) Wallet config (chain)
         const walletConfigStore = useWalletConfigStore()
         const walletConfig = await walletConfigStore.fetchWalletConfig({ auth: false })
         const chain = walletConfig?.chain
@@ -54,7 +65,7 @@ export const useAuthStore = defineStore("auth", {
           )
         }
 
-        // 2) Ask nonce (public)
+        // 2) Nonce backend
         const nonceData = await authNonce(walletAddress, chain)
         const accountExists = nonceData?.accountExists === true
         const nonce = nonceData?.nonce
@@ -62,30 +73,29 @@ export const useAuthStore = defineStore("auth", {
           throw makeAuthError(AUTH_ERROR_CODES.NONCE_MISSING, "Nonce manquant depuis le backend.")
         }
 
-        // 3) UX rules (block BEFORE signing)
+        // 3) Règles UX avant signature
         if (mode === "register" && accountExists) {
           throw makeAuthError(
             AUTH_ERROR_CODES.ACCOUNT_EXISTS,
-            "Ce wallet a deja un compte. Passe en mode connexion.",
+            "Ce wallet a déjà un compte. Passe en mode connexion.",
           )
         }
         if (mode === "login" && !accountExists) {
           throw makeAuthError(
             AUTH_ERROR_CODES.ACCOUNT_NOT_FOUND,
-            "Aucun compte trouve pour ce wallet. Cree un compte.",
+            "Aucun compte trouvé pour ce wallet. Crée un compte.",
           )
         }
 
-        // 4) Build message & sign (avec provider de connect)
+        // 4) Signature
         const message = `Login nonce: ${nonce}`
         const encoded = new TextEncoder().encode(message)
 
         const signed = await signMessageWithPhantom(provider, encoded)
-
         const sigBytes = signed?.signature || signed
         const signatureBase58 = bs58.encode(sigBytes)
 
-        // 5) Verify signature -> create/login + return JWT (public)
+        // 5) Vérification backend → JWT
         const verifyData = await authVerify({
           walletAddress,
           signature: signatureBase58,
@@ -105,7 +115,7 @@ export const useAuthStore = defineStore("auth", {
         if (!this.token) {
           throw makeAuthError(
             AUTH_ERROR_CODES.TOKEN_MISSING,
-            "Token manquant dans la reponse /auth/verify.",
+            "Token manquant dans la réponse /auth/verify.",
           )
         }
 
@@ -119,6 +129,7 @@ export const useAuthStore = defineStore("auth", {
         throw e
       } finally {
         this.loading = false
+        this._inFlight = false
       }
     },
 
@@ -127,6 +138,8 @@ export const useAuthStore = defineStore("auth", {
       this.user = null
       this.error = null
       this.errorCode = null
+      this.loading = false
+      this._inFlight = false
       localStorage.removeItem("token")
       localStorage.removeItem("user")
     },

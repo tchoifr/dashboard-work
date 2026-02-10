@@ -1,6 +1,6 @@
 <!-- src/components/AuthSolana.vue -->
 <script setup>
-import { ref } from "vue"
+import { computed, ref } from "vue"
 import { useAuthStore } from "../store/auth"
 import { AUTH_ERROR_CODES } from "../auth/errors"
 import { WALLET_ERROR_CODES } from "../solana/phantom"
@@ -14,7 +14,15 @@ const status = ref("")
 const uiError = ref("")
 const uiErrorDetails = ref("")
 
+// Lock local anti double-clic (immédiat, même si le store met 1 tick à passer loading=true)
+const inFlight = ref(false)
+const isBusy = computed(() => auth.loading || inFlight.value)
+
 async function handleProceed() {
+  // ✅ anti double-submit béton
+  if (isBusy.value) return
+
+  inFlight.value = true
   try {
     status.value = "Connexion à Phantom..."
     uiError.value = ""
@@ -29,6 +37,7 @@ async function handleProceed() {
   } catch (e) {
     const msg = e?.message || "Erreur lors de la connexion."
     const code = e?.code
+
     const expectedWalletFlowError =
       code === WALLET_ERROR_CODES.CONNECT_REJECTED ||
       code === WALLET_ERROR_CODES.REQUEST_PENDING ||
@@ -37,7 +46,9 @@ async function handleProceed() {
     if (!expectedWalletFlowError) {
       console.error(e)
     }
+
     uiError.value = msg
+
     const rawCode = e?.cause?.code ?? e?.code ?? null
     const rawMessage = e?.cause?.message || e?.message || ""
     uiErrorDetails.value =
@@ -54,12 +65,13 @@ async function handleProceed() {
     }
   } finally {
     status.value = ""
+    inFlight.value = false
   }
 }
 </script>
 
 <template>
-  <section class="auth">
+  <section class="auth" @keydown.enter.prevent="handleProceed">
     <div class="card">
       <div class="icon">
         <img style="width: 100%" src="../assets/byhnexLogo.png" alt="" />
@@ -70,27 +82,44 @@ async function handleProceed() {
 
       <div v-if="mode === 'register'" class="form-group">
         <label>Nom d'utilisateur</label>
-        <input type="text" v-model="username" placeholder="ex: Mina Chen" />
+        <input
+          type="text"
+          v-model="username"
+          placeholder="ex: Mina Chen"
+          :disabled="isBusy"
+        />
       </div>
 
-      <button class="btn primary" :disabled="auth.loading" @click="handleProceed">
-        {{ mode === "login" ? "Connecter Phantom" : "Créer mon compte" }}
+      <button
+        class="btn primary"
+        :disabled="isBusy"
+        @click.prevent="handleProceed"
+        :style="isBusy ? 'pointer-events:none;' : ''"
+      >
+        {{
+          isBusy
+            ? "Veuillez valider dans Phantom..."
+            : mode === "login"
+              ? "Connecter Phantom"
+              : "Créer mon compte"
+        }}
       </button>
 
       <p v-if="status" class="status">{{ status }}</p>
       <p v-if="uiError" class="error">{{ uiError }}</p>
       <p v-if="uiErrorDetails" class="error-details">{{ uiErrorDetails }}</p>
 
-      <button class="link" v-if="mode === 'login'" @click="mode = 'register'">
+      <button class="link" v-if="mode === 'login'" :disabled="isBusy" @click="mode = 'register'">
         Créer un compte
       </button>
 
-      <button class="link" v-if="mode === 'register'" @click="mode = 'login'">
+      <button class="link" v-if="mode === 'register'" :disabled="isBusy" @click="mode = 'login'">
         J'ai déjà un compte
       </button>
     </div>
   </section>
 </template>
+
 
 <style scoped>
 .auth {
