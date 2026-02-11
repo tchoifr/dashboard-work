@@ -34,22 +34,28 @@ export const initializeEscrow = async ({
   vaultPda,
   usdcMint,
   initializerUsdcAta,
-  feeWallet,
-  feeUsdcAta,
+
+  // NEW: ATA USDC de BYHNEX (owner = wallet Bynhex)
+  adminFeeAccount,
 }) => {
   const { methodName, method } = resolveMethod(program, ["initializeEscrow", "initialize_escrow"])
   const accountNames = methodAccountNames(program, methodName)
-  const needsFeeWallet = accountNames.has("feeWallet") || accountNames.has("fee_wallet")
-  const needsFeeUsdcAta = accountNames.has("feeUsdcAta") || accountNames.has("fee_usdc_ata")
+
+  // Nouveau compte requis par le Rust modifié
+  const needsAdminFeeAccount =
+    accountNames.has("adminFeeAccount") || accountNames.has("admin_fee_account")
 
   if (!Array.isArray(contractId32) || contractId32.length !== 32) {
     throw new Error("contractId32 invalide (Array(32) u8)")
   }
+  if (!amountBaseUnitsBN) throw new Error("amountBaseUnitsBN manquant.")
   if (!Number.isFinite(Number(feeBps))) throw new Error("feeBps manquant.")
-  if (needsFeeWallet && !feeWallet) throw new Error("feeWallet manquant.")
-  if (needsFeeUsdcAta && !feeUsdcAta) throw new Error("feeUsdcAta manquant.")
   if (!initializerUsdcAta) throw new Error("initializerUsdcAta manquant.")
   if (!usdcMint) throw new Error("usdcMint manquant.")
+
+  if (needsAdminFeeAccount && !adminFeeAccount) {
+    throw new Error("adminFeeAccount manquant (ATA USDC du wallet Bynhex).")
+  }
 
   const accounts = {
     initializer: toPublicKey(initializer),
@@ -57,14 +63,17 @@ export const initializeEscrow = async ({
     escrowState: toPublicKey(escrowStatePda),
     vault: toPublicKey(vaultPda),
     initializerUsdcAta: toPublicKey(initializerUsdcAta),
+
+    // ✨ nouveau
+    ...(needsAdminFeeAccount
+      ? { adminFeeAccount: toPublicKey(adminFeeAccount) }
+      : {}),
+
     usdcMint: toPublicKey(usdcMint),
     tokenProgram: TOKEN_PROGRAM_ID,
     systemProgram: SystemProgram.programId,
     rent: SYSVAR_RENT_PUBKEY,
   }
-
-  if (needsFeeWallet) accounts.feeWallet = toPublicKey(feeWallet)
-  if (needsFeeUsdcAta) accounts.feeUsdcAta = toPublicKey(feeUsdcAta)
 
   const call = method(
     contractId32,
@@ -72,8 +81,7 @@ export const initializeEscrow = async ({
     feeBps,
     toPublicKey(admin1),
     toPublicKey(admin2),
-  )
-    .accounts(accounts)
+  ).accounts(accounts)
 
   try {
     return await call.rpc()
@@ -93,7 +101,10 @@ export const initializeEscrow = async ({
         for (const line of simLogs) console.error("   ", line)
       }
     } catch (simError) {
-      console.error("⚠️ [initializeEscrow] impossible de simuler après échec:", simError?.message || simError)
+      console.error(
+        "⚠️ [initializeEscrow] impossible de simuler après échec:",
+        simError?.message || simError
+      )
     }
 
     throw rpcError

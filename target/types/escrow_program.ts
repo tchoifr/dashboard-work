@@ -205,6 +205,10 @@ export type EscrowProgram = {
           "writable": true
         },
         {
+          "name": "adminFeeAccount",
+          "writable": true
+        },
+        {
           "name": "usdcMint"
         },
         {
@@ -304,6 +308,11 @@ export type EscrowProgram = {
     },
     {
       "name": "refundToEmployer",
+      "docs": [
+        "Litige résolu pour l'employer (pas d'annulation => on ne “refund” pas)",
+        "Ici : on envoie TOUT au worker ou on bloque ? (tu as dit : pas d'annulation)",
+        "=> on bloque l'action explicitement."
+      ],
       "discriminator": [
         136,
         203,
@@ -352,42 +361,17 @@ export type EscrowProgram = {
               }
             ]
           }
-        },
-        {
-          "name": "vault",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  118,
-                  97,
-                  117,
-                  108,
-                  116
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "escrowState"
-              }
-            ]
-          }
-        },
-        {
-          "name": "initializerUsdcAta",
-          "writable": true
-        },
-        {
-          "name": "tokenProgram",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         }
       ],
       "args": []
     },
     {
       "name": "releaseIfBothApproved",
+      "docs": [
+        "Release normal (pas de litige) :",
+        "-> tout le vault (montant NET) au worker",
+        "-> Bynhex a déjà pris 5% à la création"
+      ],
       "discriminator": [
         194,
         43,
@@ -464,10 +448,6 @@ export type EscrowProgram = {
           "writable": true
         },
         {
-          "name": "adminFeeAccount",
-          "writable": true
-        },
-        {
           "name": "tokenProgram",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         }
@@ -476,6 +456,13 @@ export type EscrowProgram = {
     },
     {
       "name": "releaseToWorker",
+      "docs": [
+        "Litige résolu pour le worker :",
+        "- prélève 15% du vault",
+        "- 7.5% -> admin1 ATA",
+        "- 7.5% -> admin2 ATA",
+        "- reste -> worker"
+      ],
       "discriminator": [
         54,
         127,
@@ -552,7 +539,11 @@ export type EscrowProgram = {
           "writable": true
         },
         {
-          "name": "adminFeeAccount",
+          "name": "admin1UsdcAta",
+          "writable": true
+        },
+        {
+          "name": "admin2UsdcAta",
           "writable": true
         },
         {
@@ -699,63 +690,63 @@ export type EscrowProgram = {
     },
     {
       "code": 6002,
-      "name": "invalidFeeWallet",
-      "msg": "Fee wallet invalide"
-    },
-    {
-      "code": 6003,
       "name": "unauthorized",
       "msg": "Non autorisé"
     },
     {
-      "code": 6004,
+      "code": 6003,
       "name": "badStatus",
       "msg": "Mauvais status pour cette action"
     },
     {
-      "code": 6005,
+      "code": 6004,
       "name": "alreadyFinalized",
       "msg": "Déjà finalisé"
     },
     {
-      "code": 6006,
+      "code": 6005,
       "name": "notBothApproved",
       "msg": "Pas validé par les deux"
     },
     {
-      "code": 6007,
+      "code": 6006,
       "name": "alreadyVoted",
       "msg": "Déjà voté"
     },
     {
-      "code": 6008,
+      "code": 6007,
       "name": "notEnoughVotes",
       "msg": "Votes insuffisants"
     },
     {
-      "code": 6009,
+      "code": 6008,
       "name": "voteNotForWorker",
       "msg": "Le vote ne favorise pas le worker"
     },
     {
-      "code": 6010,
+      "code": 6009,
       "name": "voteNotForEmployer",
       "msg": "Le vote ne favorise pas l'employer"
     },
     {
-      "code": 6011,
+      "code": 6010,
       "name": "badMint",
       "msg": "Mint invalide"
     },
     {
-      "code": 6012,
+      "code": 6011,
       "name": "badOwner",
       "msg": "Owner invalide"
     },
     {
-      "code": 6013,
+      "code": 6012,
       "name": "mathError",
       "msg": "Erreur de calcul"
+    },
+    {
+      "code": 6013,
+      "name": "refundNotAllowed",
+      "msg": "Refund interdit (pas d'annulation)"
     }
   ],
   "types": [

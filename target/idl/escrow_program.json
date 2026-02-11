@@ -199,6 +199,10 @@
           "writable": true
         },
         {
+          "name": "admin_fee_account",
+          "writable": true
+        },
+        {
           "name": "usdc_mint"
         },
         {
@@ -298,6 +302,11 @@
     },
     {
       "name": "refund_to_employer",
+      "docs": [
+        "Litige résolu pour l'employer (pas d'annulation => on ne “refund” pas)",
+        "Ici : on envoie TOUT au worker ou on bloque ? (tu as dit : pas d'annulation)",
+        "=> on bloque l'action explicitement."
+      ],
       "discriminator": [
         136,
         203,
@@ -346,42 +355,17 @@
               }
             ]
           }
-        },
-        {
-          "name": "vault",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  118,
-                  97,
-                  117,
-                  108,
-                  116
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "escrow_state"
-              }
-            ]
-          }
-        },
-        {
-          "name": "initializer_usdc_ata",
-          "writable": true
-        },
-        {
-          "name": "token_program",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         }
       ],
       "args": []
     },
     {
       "name": "release_if_both_approved",
+      "docs": [
+        "Release normal (pas de litige) :",
+        "-> tout le vault (montant NET) au worker",
+        "-> Bynhex a déjà pris 5% à la création"
+      ],
       "discriminator": [
         194,
         43,
@@ -458,10 +442,6 @@
           "writable": true
         },
         {
-          "name": "admin_fee_account",
-          "writable": true
-        },
-        {
           "name": "token_program",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         }
@@ -470,6 +450,13 @@
     },
     {
       "name": "release_to_worker",
+      "docs": [
+        "Litige résolu pour le worker :",
+        "- prélève 15% du vault",
+        "- 7.5% -> admin1 ATA",
+        "- 7.5% -> admin2 ATA",
+        "- reste -> worker"
+      ],
       "discriminator": [
         54,
         127,
@@ -546,7 +533,11 @@
           "writable": true
         },
         {
-          "name": "admin_fee_account",
+          "name": "admin1_usdc_ata",
+          "writable": true
+        },
+        {
+          "name": "admin2_usdc_ata",
           "writable": true
         },
         {
@@ -693,63 +684,63 @@
     },
     {
       "code": 6002,
-      "name": "InvalidFeeWallet",
-      "msg": "Fee wallet invalide"
-    },
-    {
-      "code": 6003,
       "name": "Unauthorized",
       "msg": "Non autorisé"
     },
     {
-      "code": 6004,
+      "code": 6003,
       "name": "BadStatus",
       "msg": "Mauvais status pour cette action"
     },
     {
-      "code": 6005,
+      "code": 6004,
       "name": "AlreadyFinalized",
       "msg": "Déjà finalisé"
     },
     {
-      "code": 6006,
+      "code": 6005,
       "name": "NotBothApproved",
       "msg": "Pas validé par les deux"
     },
     {
-      "code": 6007,
+      "code": 6006,
       "name": "AlreadyVoted",
       "msg": "Déjà voté"
     },
     {
-      "code": 6008,
+      "code": 6007,
       "name": "NotEnoughVotes",
       "msg": "Votes insuffisants"
     },
     {
-      "code": 6009,
+      "code": 6008,
       "name": "VoteNotForWorker",
       "msg": "Le vote ne favorise pas le worker"
     },
     {
-      "code": 6010,
+      "code": 6009,
       "name": "VoteNotForEmployer",
       "msg": "Le vote ne favorise pas l'employer"
     },
     {
-      "code": 6011,
+      "code": 6010,
       "name": "BadMint",
       "msg": "Mint invalide"
     },
     {
-      "code": 6012,
+      "code": 6011,
       "name": "BadOwner",
       "msg": "Owner invalide"
     },
     {
-      "code": 6013,
+      "code": 6012,
       "name": "MathError",
       "msg": "Erreur de calcul"
+    },
+    {
+      "code": 6013,
+      "name": "RefundNotAllowed",
+      "msg": "Refund interdit (pas d'annulation)"
     }
   ],
   "types": [

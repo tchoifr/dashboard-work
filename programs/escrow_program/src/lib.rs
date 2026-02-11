@@ -6,8 +6,12 @@ declare_id!("7ztZfuYcFzPF4tgy1iFkHhTNSowKFPGdUx3QNoGg12Re");
 // Brn2npkdBZjnhS4VSFNYbLWCBZ5n7hakVcnpNGxzXosJ
 pub const FEE_WALLET_PUBKEY: Pubkey = Pubkey::new_from_array([
     157, 97, 38, 69, 64, 110, 141, 128, 10, 2, 230, 210, 227, 254, 227, 92,
-    63, 91, 63, 222, 97, 251, 191, 234, 143, 38, 30, 180, 166, 130, 74, 118
+    63, 91, 63, 222, 97, 251, 191, 234, 143, 38, 30, 180, 166, 130, 74, 118,
 ]);
+
+// 15% total en cas de litige (7.5% / admin si 2 admins)
+pub const DISPUTE_FEE_BPS: u16 = 1500;
+
 #[program]
 pub mod escrow_program {
     use super::*;
@@ -16,12 +20,15 @@ pub mod escrow_program {
         ctx: Context<InitializeEscrow>,
         contract_id: [u8; 32],
         amount: u64,
-        fee_bps: u16,
+        fee_bps: u16, // attendu = 500
         admin_one: Pubkey,
         admin_two: Pubkey,
     ) -> Result<()> {
         require!(amount > 0, EscrowError::InvalidAmount);
         require!(fee_bps <= 10_000, EscrowError::InvalidFeeBps);
+
+        // (Optionnel) verrouiller à 5% exactement :
+        // require!(fee_bps == 500, EscrowError::InvalidFeeBps);
 
         let escrow = &mut ctx.accounts.escrow_state;
 
@@ -35,7 +42,6 @@ pub mod escrow_program {
         escrow.vault = ctx.accounts.vault.key();
         escrow.usdc_mint = ctx.accounts.usdc_mint.key();
 
-        escrow.amount = amount;
         escrow.fee_bps = fee_bps;
         escrow.fee_wallet = FEE_WALLET_PUBKEY;
 
@@ -54,8 +60,43 @@ pub mod escrow_program {
         escrow.bump = ctx.bumps.escrow_state;
         escrow.vault_bump = ctx.bumps.vault;
 
-        // Transfert USDC: employer ATA -> vault
-        let cpi = CpiContext::new(
+        // ---- FEE DIRECTE À LA CRÉATION ----
+        let fee = (amount as u128)
+            .checked_mul(fee_bps as u128)
+            .ok_or(EscrowError::MathError)?
+            / 10_000u128;
+
+        let fee_u64 = fee as u64;
+        let to_vault = amount.checked_sub(fee_u64).ok_or(EscrowError::MathError)?;
+
+        // IMPORTANT : le vault ne contiendra QUE le montant net (sans les 5%)
+        escrow.amount = to_vault;
+
+        // Vérifs du compte fee (Bynhex ATA USDC)
+        require!(
+            ctx.accounts.admin_fee_account.mint == escrow.usdc_mint,
+            EscrowError::BadMint
+        );
+        require!(
+            ctx.accounts.admin_fee_account.owner == escrow.fee_wallet,
+            EscrowError::BadOwner
+        );
+
+        // 1) payer -> byhnex (fee)
+        if fee_u64 > 0 {
+            let cpi_fee = CpiContext::new(
+                ctx.accounts.token_program.to_account_info(),
+                Transfer {
+                    from: ctx.accounts.initializer_usdc_ata.to_account_info(),
+                    to: ctx.accounts.admin_fee_account.to_account_info(),
+                    authority: ctx.accounts.initializer.to_account_info(),
+                },
+            );
+            token::transfer(cpi_fee, fee_u64)?;
+        }
+
+        // 2) payer -> vault (net)
+        let cpi_vault = CpiContext::new(
             ctx.accounts.token_program.to_account_info(),
             Transfer {
                 from: ctx.accounts.initializer_usdc_ata.to_account_info(),
@@ -63,7 +104,7 @@ pub mod escrow_program {
                 authority: ctx.accounts.initializer.to_account_info(),
             },
         );
-        token::transfer(cpi, amount)?;
+        token::transfer(cpi_vault, to_vault)?;
 
         Ok(())
     }
@@ -101,71 +142,43 @@ pub mod escrow_program {
         Ok(())
     }
 
+    /// Release normal (pas de litige) :
+    /// -> tout le vault (montant NET) au worker
+    /// -> Bynhex a déjà pris 5% à la création
     pub fn release_if_both_approved(ctx: Context<ReleaseIfBothApproved>) -> Result<()> {
-        let escrow = &ctx.accounts.escrow_state;
+        let escrow_ro = &ctx.accounts.escrow_state;
 
-        require!(!escrow.finalized, EscrowError::AlreadyFinalized);
-        require!(escrow.status == EscrowStatus::Accepted, EscrowError::BadStatus);
+        require!(!escrow_ro.finalized, EscrowError::AlreadyFinalized);
+        require!(escrow_ro.status == EscrowStatus::Accepted, EscrowError::BadStatus);
         require!(
-            escrow.employer_approved && escrow.worker_approved,
+            escrow_ro.employer_approved && escrow_ro.worker_approved,
             EscrowError::NotBothApproved
         );
 
         // Vérifs destination worker ATA
         require!(
-            ctx.accounts.worker_usdc_ata.mint == escrow.usdc_mint,
+            ctx.accounts.worker_usdc_ata.mint == escrow_ro.usdc_mint,
             EscrowError::BadMint
         );
         require!(
-            ctx.accounts.worker_usdc_ata.owner == escrow.worker,
+            ctx.accounts.worker_usdc_ata.owner == escrow_ro.worker,
             EscrowError::BadOwner
         );
-
-        // Vérifs fee ATA (doit appartenir au fee wallet fixe)
-        require!(
-            ctx.accounts.admin_fee_account.mint == escrow.usdc_mint,
-            EscrowError::BadMint
-        );
-        require!(
-            ctx.accounts.admin_fee_account.owner == escrow.fee_wallet,
-            EscrowError::BadOwner
-        );
-
-        let fee = (escrow.amount as u128)
-            .checked_mul(escrow.fee_bps as u128)
-            .ok_or(EscrowError::MathError)?
-            / 10_000u128;
-
-        let fee_u64 = fee as u64;
-        let to_worker = escrow.amount.checked_sub(fee_u64).ok_or(EscrowError::MathError)?;
 
         // signer = escrow_state PDA
-        let bump_seed = [escrow.bump];
+        let bump_seed = [escrow_ro.bump];
         let seeds: &[&[u8]] = &[
             b"escrow",
-            escrow.initializer.as_ref(),
-            escrow.worker.as_ref(),
-            escrow.contract_id.as_ref(),
+            escrow_ro.initializer.as_ref(),
+            escrow_ro.worker.as_ref(),
+            escrow_ro.contract_id.as_ref(),
             &bump_seed,
         ];
         let signer_seeds: [&[&[u8]]; 1] = [seeds];
+
         let escrow_state_info = ctx.accounts.escrow_state.to_account_info();
 
-        // vault -> fee
-        if fee_u64 > 0 {
-            let cpi_fee = CpiContext::new_with_signer(
-                ctx.accounts.token_program.to_account_info(),
-                Transfer {
-                    from: ctx.accounts.vault.to_account_info(),
-                    to: ctx.accounts.admin_fee_account.to_account_info(),
-                    authority: escrow_state_info.clone(),
-                },
-                &signer_seeds,
-            );
-            token::transfer(cpi_fee, fee_u64)?;
-        }
-
-        // vault -> worker
+        // vault -> worker (tout)
         let cpi_worker = CpiContext::new_with_signer(
             ctx.accounts.token_program.to_account_info(),
             Transfer {
@@ -175,7 +188,7 @@ pub mod escrow_program {
             },
             &signer_seeds,
         );
-        token::transfer(cpi_worker, to_worker)?;
+        token::transfer(cpi_worker, escrow_ro.amount)?;
 
         let escrow = &mut ctx.accounts.escrow_state;
         escrow.status = EscrowStatus::Released;
@@ -234,73 +247,111 @@ pub mod escrow_program {
         Ok(())
     }
 
+    /// Litige résolu pour le worker :
+    /// - prélève 15% du vault
+    /// - 7.5% -> admin1 ATA
+    /// - 7.5% -> admin2 ATA
+    /// - reste -> worker
     pub fn release_to_worker(ctx: Context<ReleaseToWorker>) -> Result<()> {
-        let escrow = &ctx.accounts.escrow_state;
-        require!(!escrow.finalized, EscrowError::AlreadyFinalized);
-        require!(escrow.status == EscrowStatus::Dispute, EscrowError::BadStatus);
+        let escrow_ro = &ctx.accounts.escrow_state;
+
+        require!(!escrow_ro.finalized, EscrowError::AlreadyFinalized);
+        require!(escrow_ro.status == EscrowStatus::Dispute, EscrowError::BadStatus);
 
         require!(
-            escrow.admin1_voted && escrow.admin2_voted,
+            escrow_ro.admin1_voted && escrow_ro.admin2_voted,
             EscrowError::NotEnoughVotes
         );
         require!(
-            escrow.votes_for_worker > escrow.votes_for_employer,
+            escrow_ro.votes_for_worker > escrow_ro.votes_for_employer,
             EscrowError::VoteNotForWorker
         );
 
         let admin = ctx.accounts.admin.key();
-        require!(admin == escrow.admin1 || admin == escrow.admin2, EscrowError::Unauthorized);
+        require!(admin == escrow_ro.admin1 || admin == escrow_ro.admin2, EscrowError::Unauthorized);
 
+        // Vérifs worker ATA
         require!(
-            ctx.accounts.worker_usdc_ata.mint == escrow.usdc_mint,
+            ctx.accounts.worker_usdc_ata.mint == escrow_ro.usdc_mint,
             EscrowError::BadMint
         );
         require!(
-            ctx.accounts.worker_usdc_ata.owner == escrow.worker,
+            ctx.accounts.worker_usdc_ata.owner == escrow_ro.worker,
+            EscrowError::BadOwner
+        );
+
+        // Vérifs admin ATAs (doivent appartenir aux admin pubkeys enregistrées)
+        require!(
+            ctx.accounts.admin1_usdc_ata.mint == escrow_ro.usdc_mint,
+            EscrowError::BadMint
+        );
+        require!(
+            ctx.accounts.admin1_usdc_ata.owner == escrow_ro.admin1,
             EscrowError::BadOwner
         );
 
         require!(
-            ctx.accounts.admin_fee_account.mint == escrow.usdc_mint,
+            ctx.accounts.admin2_usdc_ata.mint == escrow_ro.usdc_mint,
             EscrowError::BadMint
         );
         require!(
-            ctx.accounts.admin_fee_account.owner == escrow.fee_wallet,
+            ctx.accounts.admin2_usdc_ata.owner == escrow_ro.admin2,
             EscrowError::BadOwner
         );
 
-        let fee = (escrow.amount as u128)
-            .checked_mul(escrow.fee_bps as u128)
+        // Calcul dispute fee
+        let dispute_fee = (escrow_ro.amount as u128)
+            .checked_mul(DISPUTE_FEE_BPS as u128)
             .ok_or(EscrowError::MathError)?
             / 10_000u128;
 
-        let fee_u64 = fee as u64;
-        let to_worker = escrow.amount.checked_sub(fee_u64).ok_or(EscrowError::MathError)?;
+        let dispute_fee_u64 = dispute_fee as u64;
+        let to_admin_each = dispute_fee_u64 / 2;
+        let to_worker = escrow_ro
+            .amount
+            .checked_sub(to_admin_each.checked_mul(2).ok_or(EscrowError::MathError)?)
+            .ok_or(EscrowError::MathError)?;
 
-        let bump_seed = [escrow.bump];
+        // signer = escrow_state PDA
+        let bump_seed = [escrow_ro.bump];
         let seeds: &[&[u8]] = &[
             b"escrow",
-            escrow.initializer.as_ref(),
-            escrow.worker.as_ref(),
-            escrow.contract_id.as_ref(),
+            escrow_ro.initializer.as_ref(),
+            escrow_ro.worker.as_ref(),
+            escrow_ro.contract_id.as_ref(),
             &bump_seed,
         ];
         let signer_seeds: [&[&[u8]]; 1] = [seeds];
+
         let escrow_state_info = ctx.accounts.escrow_state.to_account_info();
 
-        if fee_u64 > 0 {
-            let cpi_fee = CpiContext::new_with_signer(
+        // vault -> admin1
+        if to_admin_each > 0 {
+            let cpi_a1 = CpiContext::new_with_signer(
                 ctx.accounts.token_program.to_account_info(),
                 Transfer {
                     from: ctx.accounts.vault.to_account_info(),
-                    to: ctx.accounts.admin_fee_account.to_account_info(),
+                    to: ctx.accounts.admin1_usdc_ata.to_account_info(),
                     authority: escrow_state_info.clone(),
                 },
                 &signer_seeds,
             );
-            token::transfer(cpi_fee, fee_u64)?;
+            token::transfer(cpi_a1, to_admin_each)?;
+
+            // vault -> admin2
+            let cpi_a2 = CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                Transfer {
+                    from: ctx.accounts.vault.to_account_info(),
+                    to: ctx.accounts.admin2_usdc_ata.to_account_info(),
+                    authority: escrow_state_info.clone(),
+                },
+                &signer_seeds,
+            );
+            token::transfer(cpi_a2, to_admin_each)?;
         }
 
+        // vault -> worker (reste)
         let cpi_worker = CpiContext::new_with_signer(
             ctx.accounts.token_program.to_account_info(),
             Transfer {
@@ -320,60 +371,12 @@ pub mod escrow_program {
         Ok(())
     }
 
-    pub fn refund_to_employer(ctx: Context<RefundToEmployer>) -> Result<()> {
-        let escrow = &ctx.accounts.escrow_state;
-        require!(!escrow.finalized, EscrowError::AlreadyFinalized);
-        require!(escrow.status == EscrowStatus::Dispute, EscrowError::BadStatus);
-
-        require!(
-            escrow.admin1_voted && escrow.admin2_voted,
-            EscrowError::NotEnoughVotes
-        );
-        require!(
-            escrow.votes_for_employer > escrow.votes_for_worker,
-            EscrowError::VoteNotForEmployer
-        );
-
-        let admin = ctx.accounts.admin.key();
-        require!(admin == escrow.admin1 || admin == escrow.admin2, EscrowError::Unauthorized);
-
-        require!(
-            ctx.accounts.initializer_usdc_ata.mint == escrow.usdc_mint,
-            EscrowError::BadMint
-        );
-        require!(
-            ctx.accounts.initializer_usdc_ata.owner == escrow.initializer,
-            EscrowError::BadOwner
-        );
-
-        let bump_seed = [escrow.bump];
-        let seeds: &[&[u8]] = &[
-            b"escrow",
-            escrow.initializer.as_ref(),
-            escrow.worker.as_ref(),
-            escrow.contract_id.as_ref(),
-            &bump_seed,
-        ];
-        let signer_seeds: [&[&[u8]]; 1] = [seeds];
-        let escrow_state_info = ctx.accounts.escrow_state.to_account_info();
-
-        let cpi_refund = CpiContext::new_with_signer(
-            ctx.accounts.token_program.to_account_info(),
-            Transfer {
-                from: ctx.accounts.vault.to_account_info(),
-                to: ctx.accounts.initializer_usdc_ata.to_account_info(),
-                authority: escrow_state_info,
-            },
-            &signer_seeds,
-        );
-        token::transfer(cpi_refund, escrow.amount)?;
-
-        let escrow = &mut ctx.accounts.escrow_state;
-        escrow.status = EscrowStatus::Refunded;
-        escrow.finalized = true;
-        escrow.resolved_for_worker = Some(false);
-
-        Ok(())
+    /// Litige résolu pour l'employer (pas d'annulation => on ne “refund” pas)
+    /// Ici : on envoie TOUT au worker ou on bloque ? (tu as dit : pas d'annulation)
+    /// => on bloque l'action explicitement.
+    pub fn refund_to_employer(_ctx: Context<RefundToEmployer>) -> Result<()> {
+        // Pas d'annulation / pas de refund dans tes règles
+        err!(EscrowError::RefundNotAllowed)
     }
 }
 
@@ -416,6 +419,10 @@ pub struct InitializeEscrow<'info> {
         constraint = initializer_usdc_ata.mint == usdc_mint.key() @ EscrowError::BadMint
     )]
     pub initializer_usdc_ata: Account<'info, TokenAccount>,
+
+    // ATA USDC de BYHNEX (owner = FEE_WALLET_PUBKEY)
+    #[account(mut)]
+    pub admin_fee_account: Account<'info, TokenAccount>,
 
     pub usdc_mint: Account<'info, Mint>,
 
@@ -498,9 +505,6 @@ pub struct ReleaseIfBothApproved<'info> {
     #[account(mut)]
     pub worker_usdc_ata: Account<'info, TokenAccount>,
 
-    #[account(mut)]
-    pub admin_fee_account: Account<'info, TokenAccount>,
-
     pub token_program: Program<'info, Token>,
 }
 
@@ -562,14 +566,19 @@ pub struct ReleaseToWorker<'info> {
     #[account(mut)]
     pub worker_usdc_ata: Account<'info, TokenAccount>,
 
+    // ATAs USDC des admins
     #[account(mut)]
-    pub admin_fee_account: Account<'info, TokenAccount>,
+    pub admin1_usdc_ata: Account<'info, TokenAccount>,
+
+    #[account(mut)]
+    pub admin2_usdc_ata: Account<'info, TokenAccount>,
 
     pub token_program: Program<'info, Token>,
 }
 
 #[derive(Accounts)]
 pub struct RefundToEmployer<'info> {
+    // conservé pour compat, mais interdit
     pub admin: Signer<'info>,
 
     #[account(
@@ -583,18 +592,6 @@ pub struct RefundToEmployer<'info> {
         bump = escrow_state.bump
     )]
     pub escrow_state: Account<'info, EscrowState>,
-
-    #[account(
-        mut,
-        seeds = [b"vault", escrow_state.key().as_ref()],
-        bump = escrow_state.vault_bump
-    )]
-    pub vault: Account<'info, TokenAccount>,
-
-    #[account(mut)]
-    pub initializer_usdc_ata: Account<'info, TokenAccount>,
-
-    pub token_program: Program<'info, Token>,
 }
 
 #[account]
@@ -610,7 +607,10 @@ pub struct EscrowState {
     pub vault: Pubkey,
     pub usdc_mint: Pubkey,
 
+    // Montant NET stocké dans le vault (après fee Bynhex)
     pub amount: u64,
+
+    // Fee Bynhex (5% en pratique)
     pub fee_bps: u16,
     pub fee_wallet: Pubkey,
 
@@ -646,9 +646,6 @@ pub enum EscrowError {
     InvalidAmount,
     #[msg("FeeBps invalide")]
     InvalidFeeBps,
-    // (tu peux garder cette erreur même si on ne parse plus)
-    #[msg("Fee wallet invalide")]
-    InvalidFeeWallet,
     #[msg("Non autorisé")]
     Unauthorized,
     #[msg("Mauvais status pour cette action")]
@@ -671,4 +668,6 @@ pub enum EscrowError {
     BadOwner,
     #[msg("Erreur de calcul")]
     MathError,
+    #[msg("Refund interdit (pas d'annulation)")]
+    RefundNotAllowed,
 }
