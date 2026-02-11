@@ -31,7 +31,7 @@ import AuthLanding from "./AuthLanding.vue"
 // AUTH
 // ==========================
 const auth = useAuthStore()
-const showAuth = ref(!auth.isLogged)
+const showAuth = ref(!auth.isAuthenticated)
 
 // ==========================
 // TABS
@@ -64,7 +64,7 @@ const profile = computed(() => ({
 }))
 
 async function loadProfile() {
-  if (!auth.isLogged) return
+  if (!auth.isAuthenticated) return
   await profileStore.fetchMe()
 }
 
@@ -188,7 +188,7 @@ const unreadCount = computed(() => conversationStore.totalUnread)
 // LOADERS
 // ==========================
 async function loadMyContracts() {
-  if (!auth.isLogged) return
+  if (!auth.isAuthenticated) return
   try {
     await contractsStore.fetchAll()
   } catch (e) {
@@ -206,7 +206,7 @@ async function loadWalletConfig() {
 }
 
 async function loadMessagingData() {
-  if (!auth.isLogged) return
+  if (!auth.isAuthenticated) return
 
   // si ton store a bien cette méthode, garde-la, sinon supprime cette ligne
   if (typeof conversationStore.setMyUuid === "function") {
@@ -318,6 +318,18 @@ function handleConnected() {
   showAuth.value = false
 }
 
+async function handleLogout() {
+  try {
+    const phantom = getPhantomProvider()
+    await phantom?.disconnect?.()
+  } catch {
+    // no-op
+  } finally {
+    auth.logout()
+    showAuth.value = true
+  }
+}
+
 async function handleSelectConversation(conversationId) {
   await conversationStore.selectConversation(conversationId)
 }
@@ -354,7 +366,7 @@ async function handleDeleteMessage(messageId) {
 // WATCH LOGIN
 // ==========================
 watch(
-  () => auth.isLogged,
+  () => auth.isAuthenticated,
   (logged) => {
     showAuth.value = !logged
     if (logged) {
@@ -376,7 +388,7 @@ watch(
 // MOUNT
 // ==========================
 onMounted(() => {
-  if (auth.isLogged) {
+  if (auth.isAuthenticated) {
     loadWalletConfig()
     refreshWalletGuard()
     loadMyContracts()
@@ -388,7 +400,7 @@ onMounted(() => {
 watch(
   () => auth.user?.walletAddress,
   () => {
-    if (auth.isLogged) refreshWalletGuard()
+    if (auth.isAuthenticated) refreshWalletGuard()
   },
 )
 
@@ -399,7 +411,7 @@ watch(
     () => walletConfigSafe.value.chain,
   ],
   () => {
-    if (auth.isLogged) refreshWalletGuard()
+    if (auth.isAuthenticated) refreshWalletGuard()
   },
 )
 </script>
@@ -413,8 +425,11 @@ watch(
     <header class="top-bar">
       <div class="work-pill">WORK</div>
 
-      <div class="profile">
-        {{ profile.username?.substring(0, 2).toUpperCase() }}
+      <div class="top-actions">
+        <button class="logout-btn" @click="handleLogout">Deconnexion</button>
+        <div class="profile">
+          {{ profile.username?.substring(0, 2).toUpperCase() }}
+        </div>
       </div>
     </header>
 
@@ -562,6 +577,23 @@ watch(
   align-items: center;
   justify-content: space-between;
   margin-bottom: 28px;
+}
+
+.top-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.logout-btn {
+  height: 36px;
+  border-radius: 10px;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 120, 160, 0.35);
+  background: rgba(255, 120, 160, 0.12);
+  color: #ffd0e1;
+  font-weight: 700;
+  cursor: pointer;
 }
 
 .work-pill {

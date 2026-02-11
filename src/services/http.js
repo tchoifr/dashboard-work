@@ -12,7 +12,7 @@ http.interceptors.request.use((config) => {
     return config
   }
 
-  const token = localStorage.getItem("token")
+  const token = localStorage.getItem("auth_token") || localStorage.getItem("token")
 
   if (token && token !== "null" && token !== "undefined") {
     config.headers = config.headers || {}

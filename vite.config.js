@@ -17,7 +17,8 @@ export default defineConfig({
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
       buffer: 'buffer/',
-      process: 'process/browser',
+      process: fileURLToPath(new URL('./node_modules/process/browser.js', import.meta.url)),
+      'process/': fileURLToPath(new URL('./node_modules/process/browser.js', import.meta.url)),
       util: 'util/',
     },
   },

@@ -1,17 +1,20 @@
 <script setup>
-import { ref } from "vue"
+import { computed, onMounted } from "vue"
 import AuthLanding from "./components/AuthLanding.vue"
 import DashboardView from "./components/DashboardView.vue"
 import { useAuthStore } from "./store/auth"
 
 const auth = useAuthStore()
-const isAuthenticated = ref(false)
+const isAuthenticated = computed(() => auth.isAuthenticated)
+
+onMounted(() => {
+  auth.restoreFromLocalStorage()
+})
 
 const handleConnected = (payload) => {
   // payload = { token, user }
   auth.token = payload.token
   auth.user = payload.user
-  isAuthenticated.value = true
 }
 </script>
 

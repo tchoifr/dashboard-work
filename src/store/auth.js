@@ -1,147 +1,268 @@
-import { defineStore } from "pinia"
-import { authNonce, authVerify } from "../services/authApi"
-import bs58 from "bs58"
-import { connectPhantom, signMessageWithPhantom, WALLET_ERROR_CODES } from "../solana/phantom"
-import { useWalletConfigStore } from "./walletConfig"
-import { AUTH_ERROR_CODES, makeAuthError } from "../auth/errors"
+// src/store/auth.js
+import { defineStore } from "pinia";
+import { authNonce, authVerify } from "../services/authApi";
+import {
+  connectPhantom,
+  signMessageWithPhantom,
+  getConnectedPhantomPublicKey,
+  WALLET_ERROR_CODES,
+} from "../solana/phantom";
+import { AUTH_ERROR_CODES, makeAuthError } from "../auth/errors";
+import { useWalletConfigStore } from "./walletConfig";
 
 export const useAuthStore = defineStore("auth", {
   state: () => ({
-    token: localStorage.getItem("token"),
-    user: (() => {
-      try {
-        return JSON.parse(localStorage.getItem("user") || "null")
-      } catch {
-        return null
-      }
-    })(),
+    user: null,
+    token: null,
     loading: false,
-    error: null,
-    errorCode: null,
-
-    // 🔒 lock interne anti double-submit
-    _inFlight: false,
+    // ✅ NOUVEAU: Stockage du nonce pré-chargé
+    preloadedNonce: null,
+    preloadedWallet: null,
   }),
 
   getters: {
-    isLogged: (state) => !!state.token,
-    userUuid: (state) => state.user?.uuid || null,
+    isAuthenticated: (state) => !!state.token,
   },
 
   actions: {
-    /**
-     * mode: "login" | "register"
-     */
-    async loginWithWallet({ username = null, mode = "login" } = {}) {
-      // 🛑 garde-fou absolu
-      if (this.loading || this._inFlight) {
-        throw makeAuthError(
-          WALLET_ERROR_CODES.REQUEST_PENDING,
-          "Une demande Phantom est déjà en cours. Valide ou ferme la popup Phantom.",
-        )
-      }
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // ✅ NOUVELLE FONCTION: Pré-chargement du nonce
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    async preloadNonce() {
+      try {
+        console.log("🔍 [preloadNonce] Vérification connexion silencieuse...");
+        
+        // Tentative de connexion silencieuse (sans popup)
+        const { publicKey } = await connectPhantom({
+          onlyIfTrusted: true,
+          interactive: false,
+        });
 
-      this.loading = true
-      this._inFlight = true
-      this.error = null
-      this.errorCode = null
+        if (!publicKey) {
+          console.log("⚠️ [preloadNonce] Wallet non connecté");
+          return;
+        }
+
+        const walletAddress = publicKey.toBase58();
+        console.log("✅ [preloadNonce] Wallet connecté:", walletAddress);
+
+        // Récupérer la config (chain)
+        const walletConfigStore = useWalletConfigStore();
+        await walletConfigStore.fetchWalletConfig({ auth: false });
+        const chain = walletConfigStore.chain;
+
+        if (!chain) {
+          console.log("⚠️ [preloadNonce] Pas de chain configurée");
+          return;
+        }
+
+        // Pré-charger le nonce
+        console.log("🎲 [preloadNonce] Récupération du nonce...");
+        const { nonce } = await authNonce(walletAddress, chain);
+        
+        this.preloadedNonce = nonce;
+        this.preloadedWallet = walletAddress;
+        
+        console.log("✅ [preloadNonce] Nonce pré-chargé:", nonce);
+      } catch (error) {
+        console.log("⚠️ [preloadNonce] Erreur (ignorée):", error.message);
+        // Erreur ignorée - ce n'est qu'un pré-chargement
+      }
+    },
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // FONCTION PRINCIPALE DE CONNEXION (MODIFIÉE)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    async loginWithWallet({ username = null, mode = "login" } = {}) {
+      this.loading = true;
 
       try {
-        // 0) Connect Phantom (user-gesture conservé)
-        const { provider, publicKey } = await connectPhantom()
-        const walletAddress = publicKey?.toBase58()
-        if (!walletAddress) {
-          throw makeAuthError(AUTH_ERROR_CODES.WALLET_MISSING, "Wallet introuvable.")
+        console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        console.log("🚀 [loginWithWallet] DÉBUT");
+        console.log("   Mode:", mode);
+        console.log("   Username:", username);
+        console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // ÉTAPE 1: CONNEXION AU WALLET
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        console.log("🔌 [loginWithWallet] Connexion au wallet...");
+        const { provider, publicKey } = await connectPhantom({
+          interactive: true,
+        });
+
+        if (!publicKey) {
+          throw makeAuthError(
+            AUTH_ERROR_CODES.WALLET_CONNECTION_FAILED,
+            "Impossible de récupérer la clé publique du wallet"
+          );
         }
 
-        // 1) Wallet config (chain)
-        const walletConfigStore = useWalletConfigStore()
-        const walletConfig = await walletConfigStore.fetchWalletConfig({ auth: false })
-        const chain = walletConfig?.chain
+        const walletAddress = publicKey.toBase58();
+        console.log("✅ [loginWithWallet] Wallet connecté:", walletAddress);
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // ÉTAPE 2: RÉCUPÉRATION DE LA CHAIN
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        const walletConfigStore = useWalletConfigStore();
+        await walletConfigStore.fetchWalletConfig({ auth: false });
+        const chain = walletConfigStore.chain;
+
         if (!chain) {
           throw makeAuthError(
-            AUTH_ERROR_CODES.CHAIN_MISSING,
-            "Chain manquante depuis /wallet/config.",
-          )
+            AUTH_ERROR_CODES.CONFIG_ERROR,
+            "Configuration chain manquante"
+          );
+        }
+        console.log("🔗 [loginWithWallet] Chain:", chain);
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // ÉTAPE 3: RÉCUPÉRATION DU NONCE
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        let nonce = null;
+        let accountExists = false;
+
+        // ✅ Utiliser le nonce pré-chargé si disponible et pour le bon wallet
+        if (
+          this.preloadedNonce &&
+          this.preloadedWallet === walletAddress
+        ) {
+          console.log("⚡ [loginWithWallet] Utilisation du nonce pré-chargé");
+          nonce = this.preloadedNonce;
+          // On considère que le compte existe si on a pu pré-charger
+          accountExists = true;
+        } else {
+          console.log("🎲 [loginWithWallet] Récupération du nonce...");
+          const nonceData = await authNonce(walletAddress, chain);
+          nonce = nonceData.nonce;
+          accountExists = nonceData.accountExists;
+          console.log("✅ [loginWithWallet] Nonce:", nonce);
+          console.log("ℹ️ [loginWithWallet] Compte existe:", accountExists);
         }
 
-        // 2) Nonce backend
-        const nonceData = await authNonce(walletAddress, chain)
-        const accountExists = nonceData?.accountExists === true
-        const nonce = nonceData?.nonce
-        if (!nonce) {
-          throw makeAuthError(AUTH_ERROR_CODES.NONCE_MISSING, "Nonce manquant depuis le backend.")
-        }
+        // Nettoyer le nonce pré-chargé (usage unique)
+        this.preloadedNonce = null;
+        this.preloadedWallet = null;
 
-        // 3) Règles UX avant signature
-        if (mode === "register" && accountExists) {
-          throw makeAuthError(
-            AUTH_ERROR_CODES.ACCOUNT_EXISTS,
-            "Ce wallet a déjà un compte. Passe en mode connexion.",
-          )
-        }
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // ÉTAPE 4: VALIDATION MODE vs COMPTE
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         if (mode === "login" && !accountExists) {
           throw makeAuthError(
             AUTH_ERROR_CODES.ACCOUNT_NOT_FOUND,
-            "Aucun compte trouvé pour ce wallet. Crée un compte.",
-          )
+            "Aucun compte trouvé pour ce wallet. Crée un compte d'abord."
+          );
         }
 
-        // 4) Signature
-        const message = `Login nonce: ${nonce}`
-        const encoded = new TextEncoder().encode(message)
-
-        const signed = await signMessageWithPhantom(provider, encoded)
-        const sigBytes = signed?.signature || signed
-        const signatureBase58 = bs58.encode(sigBytes)
-
-        // 5) Vérification backend → JWT
-        const verifyData = await authVerify({
-          walletAddress,
-          signature: signatureBase58,
-          nonce,
-          username: mode === "register" ? (username || walletAddress) : undefined,
-          chain,
-          mode,
-        })
-
-        this.token = verifyData?.token || null
-        this.user = {
-          ...(verifyData?.user || {}),
-          walletAddress,
-          chain,
-        }
-
-        if (!this.token) {
+        if (mode === "register" && accountExists) {
           throw makeAuthError(
-            AUTH_ERROR_CODES.TOKEN_MISSING,
-            "Token manquant dans la réponse /auth/verify.",
-          )
+            AUTH_ERROR_CODES.ACCOUNT_EXISTS,
+            "Un compte existe déjà pour ce wallet. Connecte-toi."
+          );
         }
 
-        localStorage.setItem("token", this.token)
-        localStorage.setItem("user", JSON.stringify(this.user))
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // ÉTAPE 5: SIGNATURE DU MESSAGE
+        // ⚠️ CRITIQUE: Pas de délai async avant cette étape !
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        console.log("✍️ [loginWithWallet] Demande de signature...");
+        const message = `Login nonce: ${nonce}`;
+        const encodedMessage = new TextEncoder().encode(message);
 
-        return verifyData
-      } catch (e) {
-        this.error = e?.message || "Erreur d’authentification"
-        this.errorCode = e?.code || null
-        throw e
+        let signatureResult;
+        try {
+          signatureResult = await signMessageWithPhantom(
+            provider,
+            encodedMessage
+          );
+          console.log("✅ [loginWithWallet] Signature réussie");
+        } catch (signError) {
+          console.error("❌ [loginWithWallet] Erreur de signature:", signError);
+          throw signError; // Propager l'erreur (déjà mappée dans phantom.js)
+        }
+
+        // Conversion de la signature en base64
+        const signature = btoa(
+          String.fromCharCode(...signatureResult.signature)
+        );
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // ÉTAPE 6: VÉRIFICATION AVEC LE BACKEND
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        console.log("✔️ [loginWithWallet] Vérification avec le backend...");
+        const verifyPayload = {
+          walletAddress,
+          signature,
+          nonce,
+          chain,
+        };
+
+        if (mode === "register" && username) {
+          verifyPayload.username = username;
+        }
+
+        let verifyData;
+        try {
+          verifyData = await authVerify(verifyPayload);
+        } catch (verifyError) {
+          console.error("❌ [loginWithWallet] Vérification échouée:", verifyError);
+          throw makeAuthError(
+            AUTH_ERROR_CODES.VERIFICATION_FAILED,
+            verifyError.message || "Signature invalide"
+          );
+        }
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // ÉTAPE 7: SAUVEGARDE DES DONNÉES
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        this.token = verifyData.token;
+        this.user = verifyData.user;
+
+        localStorage.setItem("auth_token", verifyData.token);
+        localStorage.setItem("user", JSON.stringify(verifyData.user));
+
+        console.log("🎉 [loginWithWallet] Authentification réussie!");
+        console.log("   User:", verifyData.user);
+
+        return verifyData;
+      } catch (error) {
+        console.error("💥 [loginWithWallet] Erreur globale:", error);
+        throw error;
       } finally {
-        this.loading = false
-        this._inFlight = false
+        this.loading = false;
       }
     },
 
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // DÉCONNEXION
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     logout() {
-      this.token = null
-      this.user = null
-      this.error = null
-      this.errorCode = null
-      this.loading = false
-      this._inFlight = false
-      localStorage.removeItem("token")
-      localStorage.removeItem("user")
+      this.user = null;
+      this.token = null;
+      this.preloadedNonce = null;
+      this.preloadedWallet = null;
+      localStorage.removeItem("auth_token");
+      localStorage.removeItem("user");
+      console.log("👋 Déconnexion réussie");
+    },
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // RESTAURATION DEPUIS LOCALSTORAGE
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    restoreFromLocalStorage() {
+      const token = localStorage.getItem("auth_token");
+      const userStr = localStorage.getItem("user");
+
+      if (token && userStr) {
+        try {
+          this.token = token;
+          this.user = JSON.parse(userStr);
+          console.log("✅ Session restaurée:", this.user);
+        } catch (error) {
+          console.error("❌ Erreur restauration session:", error);
+          this.logout();
+        }
+      }
     },
   },
-})
+});
