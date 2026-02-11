@@ -10,6 +10,12 @@ const normalizeWalletConfig = (data) => {
     rpcUrl: data.rpcUrl ?? data.rpc_url ?? null,
     programId: data.programId ?? data.program_id ?? null,
     usdcMint: data.usdcMint ?? data.usdc_mint ?? null,
+    feeBps:
+      data.feeBps ??
+      data.fee_bps ??
+      data.feePlatformBps ??
+      data.fee_platform_bps ??
+      null,
     feeVaultAta: data.feeVaultAta ?? data.fee_vault_ata ?? null,
     disputeVaultAta: data.disputeVaultAta ?? data.dispute_vault_ata ?? null,
     feePlatformBps: data.feePlatformBps ?? data.fee_platform_bps ?? null,
@@ -17,6 +23,18 @@ const normalizeWalletConfig = (data) => {
     feeWallet: data.feeWallet ?? data.fee_wallet ?? null,
     admin1: data.admin1 ?? data.admin_1 ?? null,
     admin2: data.admin2 ?? data.admin_2 ?? null,
+    admin1FeeAta:
+      data.admin1FeeAta ??
+      data.admin_1_fee_ata ??
+      data.adminOneFeeAta ??
+      data.admin_one_fee_ata ??
+      null,
+    admin2FeeAta:
+      data.admin2FeeAta ??
+      data.admin_2_fee_ata ??
+      data.adminTwoFeeAta ??
+      data.admin_two_fee_ata ??
+      null,
   }
 }
 

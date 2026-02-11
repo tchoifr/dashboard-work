@@ -38,7 +38,7 @@ export const initializeEscrow = async ({
   if (!initializerUsdcAta) throw new Error("initializerUsdcAta manquant.")
   if (!usdcMint) throw new Error("usdcMint manquant.")
 
-  return method(
+  const call = method(
     contractId32,
     amountBaseUnitsBN,
     feeBps,
@@ -58,5 +58,28 @@ export const initializeEscrow = async ({
       systemProgram: SystemProgram.programId,
       rent: SYSVAR_RENT_PUBKEY,
     })
-    .rpc()
+
+  try {
+    return await call.rpc()
+  } catch (rpcError) {
+    console.error("❌ [initializeEscrow] rpc() a échoué:", rpcError?.message || rpcError)
+
+    if (Array.isArray(rpcError?.logs) && rpcError.logs.length) {
+      console.error("📜 [initializeEscrow] logs rpc:")
+      for (const line of rpcError.logs) console.error("   ", line)
+    }
+
+    try {
+      const sim = await call.simulate()
+      const simLogs = sim?.raw?.logs || sim?.logs || []
+      if (Array.isArray(simLogs) && simLogs.length) {
+        console.error("🧪 [initializeEscrow] logs simulation complets:")
+        for (const line of simLogs) console.error("   ", line)
+      }
+    } catch (simError) {
+      console.error("⚠️ [initializeEscrow] impossible de simuler après échec:", simError?.message || simError)
+    }
+
+    throw rpcError
+  }
 }

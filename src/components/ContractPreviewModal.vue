@@ -15,6 +15,8 @@ const props = defineProps({
   rpcUrl: String,
   admin1: String,
   admin2: String,
+  admin1FeeAta: String,
+  admin2FeeAta: String,
 })
 
 const emit = defineEmits(["close", "updated"])

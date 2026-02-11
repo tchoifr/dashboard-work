@@ -1,11 +1,11 @@
 use anchor_lang::prelude::*;
-use anchor_lang::solana_program::pubkey;
 use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
+use std::str::FromStr;
 
 declare_id!("7ztZfuYcFzPF4tgy1iFkHhTNSowKFPGdUx3QNoGg12Re");
 
 /// Fee wallet fixe (pubkey constant, pas de parsing on-chain)
-pub const FEE_WALLET: Pubkey = pubkey!("Brn2npkdBZjnhS4VSFNYbLWCBZ5n7hakVcnpNGxzXosJ");
+pub const FEE_WALLET: &str = "Brn2npkdBZjnhS4VSFNYbLWCBZ5n7hakVcnpNGxzXosJ";
 
 #[program]
 pub mod escrow_program {
@@ -36,7 +36,8 @@ pub mod escrow_program {
 
         escrow.amount = amount;
         escrow.fee_bps = fee_bps;
-        escrow.fee_wallet = FEE_WALLET;
+        let fee_wallet = Pubkey::from_str(FEE_WALLET).map_err(|_| error!(EscrowError::InvalidFeeWallet))?;
+        escrow.fee_wallet = fee_wallet;
 
         escrow.status = EscrowStatus::Initialized;
         escrow.finalized = false;

@@ -122,15 +122,6 @@
     },
     {
       "name": "initialize_escrow",
-      "docs": [
-        "✅ MULTI-CONTRAT:",
-        "- on ajoute `contract_id: [u8; 32]`",
-        "- le PDA escrow_state devient unique par (initializer, worker, contract_id)",
-        "✅ FEE:",
-        "- prélève fee_bps à la création",
-        "- transfère fee vers fee_usdc_ata (Byhnex)",
-        "- transfère le reste vers le vault"
-      ],
       "discriminator": [
         243,
         160,
@@ -148,10 +139,7 @@
           "signer": true
         },
         {
-          "name": "worker",
-          "docs": [
-            "CHECK"
-          ]
+          "name": "worker"
         },
         {
           "name": "escrow_state",
@@ -208,13 +196,6 @@
         },
         {
           "name": "initializer_usdc_ata",
-          "writable": true
-        },
-        {
-          "name": "fee_wallet"
-        },
-        {
-          "name": "fee_usdc_ata",
           "writable": true
         },
         {
@@ -401,9 +382,6 @@
     },
     {
       "name": "release_if_both_approved",
-      "docs": [
-        "Mode normal : release quand les 2 ont validé"
-      ],
       "discriminator": [
         194,
         43,

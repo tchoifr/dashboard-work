@@ -14,6 +14,59 @@ import { initializeEscrow } from "../solana/tx/fundTx";
 import { ensurePhantom } from "./phantom";
 import { makeContractId32 } from "./utils";
 
+const DEVNET_MAINNET_USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+
+function requireValidContractId32(contractId32) {
+  if (!Array.isArray(contractId32) || contractId32.length !== 32) {
+    throw new Error("contract_id invalide: 32 bytes requis.");
+  }
+  const isByte = contractId32.every(
+    (value) => Number.isInteger(value) && value >= 0 && value <= 255,
+  );
+  if (!isByte) {
+    throw new Error("contract_id invalide: doit être un tableau d'octets.");
+  }
+}
+
+function validateClusterConfig({ chain, rpcUrl, usdcMint }) {
+  const chainLower = String(chain || "").toLowerCase();
+  const rpcLower = String(rpcUrl || "").toLowerCase();
+
+  if (chainLower.includes("devnet")) {
+    if (!rpcLower.includes("devnet")) {
+      throw new Error("Incohérence cluster: chain=devnet mais rpcUrl n'est pas devnet.");
+    }
+    if (String(usdcMint || "") === DEVNET_MAINNET_USDC_MINT) {
+      throw new Error("Incohérence mint: mint USDC mainnet utilisé alors que chain=devnet.");
+    }
+  }
+}
+
+function logTxFailure(err) {
+  console.error("❌ Create contract error:", err);
+  console.error("   - message:", err?.message);
+  console.error("   - code:", err?.code);
+  console.error("   - tx signature:", err?.signature || err?.txSig || null);
+
+  const logs =
+    err?.logs ||
+    err?.transactionLogs ||
+    err?.errorLogs ||
+    err?.simulationResponse?.value?.logs ||
+    null;
+
+  if (Array.isArray(logs) && logs.length) {
+    console.error("   - logs complets:");
+    for (const line of logs) console.error("    ", line);
+  }
+
+  const innerLogs = err?.error?.logs;
+  if (Array.isArray(innerLogs) && innerLogs.length) {
+    console.error("   - logs internes:");
+    for (const line of innerLogs) console.error("    ", line);
+  }
+}
+
 export async function submitForm({
   props,
   canSubmit,
@@ -81,6 +134,11 @@ export async function submitForm({
       alert("Chain manquante.");
       return;
     }
+    validateClusterConfig({
+      chain: props.chain,
+      rpcUrl: props.rpcUrl,
+      usdcMint: props.usdcMint,
+    });
 
     // 4) solana connection/provider/program
     const connection = getConnection(props.rpcUrl);
@@ -110,13 +168,30 @@ export async function submitForm({
     }
 
     const amountBaseUnits = new BN(Math.round(amountUsdcUi * 10 ** decimals));
+    const amountBaseUnitsBigInt = BigInt(amountBaseUnits.toString());
 
     // 6) admins (2/2)
-    const admin1Pk = props.admin1 ? new PublicKey(props.admin1) : publicKey;
-    const admin2Pk = props.admin2 ? new PublicKey(props.admin2) : publicKey;
+    if (!props.admin1 || !props.admin2) {
+      alert("Configuration manquante: admin1/admin2.");
+      return;
+    }
+    const admin1Pk = new PublicKey(props.admin1);
+    const admin2Pk = new PublicKey(props.admin2);
+
+    if (!props.admin1FeeAta) {
+      alert("Configuration manquante: admin1FeeAta.");
+      return;
+    }
+    if (!props.admin2FeeAta) {
+      alert("Configuration manquante: admin2FeeAta.");
+      return;
+    }
+    const admin1FeeAtaPk = new PublicKey(props.admin1FeeAta);
+    const admin2FeeAtaPk = new PublicKey(props.admin2FeeAta);
 
     // 7) PDAs (escrowState + vault)
     const contractId32 = makeContractId32();
+    requireValidContractId32(contractId32);
     const { escrowStatePda, vaultPda } = await findEscrowPdas(
       props.programId,
       publicKey,
@@ -132,37 +207,58 @@ export async function submitForm({
       owner: publicKey,
       mint: mintPk,
     });
-
-    // 9) fee vault (treasury) - on utilise directement l’ATA donné par /api/wallet/config
-    let feeWalletPk = props.feeWallet ? new PublicKey(props.feeWallet) : null;
-    let feeUsdcAta = null;
-
-    if (props.feeVaultAta) {
-      feeUsdcAta = new PublicKey(props.feeVaultAta);
-
-      // si feeWallet pas fourni (dev), on peut le déduire de l'ATA
-      if (!feeWalletPk) {
-        const feeAccount = await getAccount(connection, feeUsdcAta);
-        feeWalletPk = feeAccount.owner;
-      }
-    } else {
-      // fallback: créer l'ATA treasury si on a seulement le wallet
-      if (!feeWalletPk) {
-        alert("Fee wallet (Byhnex) manquant.");
-        return;
-      }
-      const res = await getOrCreateAta({
-        connection,
-        provider,
-        payer: provider.wallet.publicKey,
-        owner: feeWalletPk,
-        mint: mintPk,
-      });
-      feeUsdcAta = res.ata;
+    const initializerAtaInfo = await getAccount(connection, initializerUsdcAta);
+    if (!initializerAtaInfo.owner.equals(publicKey)) {
+      alert("initializer_usdc_ata invalide: owner != initializer.");
+      return;
+    }
+    if (!initializerAtaInfo.mint.equals(mintPk)) {
+      alert("initializer_usdc_ata invalide: mint != usdc_mint.");
+      return;
+    }
+    if (initializerAtaInfo.amount < amountBaseUnitsBigInt) {
+      alert("Solde USDC insuffisant sur initializer_usdc_ata.");
+      return;
     }
 
-    if (!feeWalletPk || !feeUsdcAta) {
-      alert("Fee vault ATA manquant.");
+    // 9) comptes fee (Byhnex) : fournis par /wallet/config, pas de fallback
+    if (!props.feeWallet) {
+      alert("Configuration manquante: feeWallet.");
+      return;
+    }
+    if (!props.feeVaultAta) {
+      alert("Configuration manquante: feeVaultAta.");
+      return;
+    }
+    const feeWalletPk = new PublicKey(props.feeWallet);
+    const feeUsdcAta = new PublicKey(props.feeVaultAta);
+    const feeAtaInfo = await getAccount(connection, feeUsdcAta);
+    if (!feeAtaInfo.owner.equals(feeWalletPk)) {
+      alert("fee_usdc_ata invalide: owner != feeWallet.");
+      return;
+    }
+    if (!feeAtaInfo.mint.equals(mintPk)) {
+      alert("fee_usdc_ata invalide: mint != usdc_mint.");
+      return;
+    }
+
+    const admin1FeeAtaInfo = await getAccount(connection, admin1FeeAtaPk);
+    if (!admin1FeeAtaInfo.owner.equals(admin1Pk)) {
+      alert("admin1_fee_account invalide: owner != admin1.");
+      return;
+    }
+    if (!admin1FeeAtaInfo.mint.equals(mintPk)) {
+      alert("admin1_fee_account invalide: mint != usdc_mint.");
+      return;
+    }
+
+    const admin2FeeAtaInfo = await getAccount(connection, admin2FeeAtaPk);
+    if (!admin2FeeAtaInfo.owner.equals(admin2Pk)) {
+      alert("admin2_fee_account invalide: owner != admin2.");
+      return;
+    }
+    if (!admin2FeeAtaInfo.mint.equals(mintPk)) {
+      alert("admin2_fee_account invalide: mint != usdc_mint.");
       return;
     }
 
@@ -188,8 +284,9 @@ export async function submitForm({
     // 11) init escrow on-chain
     txStatus.value = "Signature initialize_escrow...";
 
-    if (!Number.isFinite(Number(props.feePlatformBps))) {
-      alert("feePlatformBps manquant.");
+    const feeBps = Number(props.feeBps ?? props.feePlatformBps);
+    if (!Number.isFinite(feeBps) || feeBps < 0 || feeBps > 10_000) {
+      alert("feeBps invalide.");
       return;
     }
 
@@ -197,7 +294,7 @@ export async function submitForm({
       program,
       contractId32,
       amountBaseUnitsBN: amountBaseUnits,
-      feeBps: Number(props.feePlatformBps),
+      feeBps,
       initializer: publicKey,
       worker: workerPk,
       admin1: admin1Pk,
@@ -226,13 +323,17 @@ export async function submitForm({
 
       feeVaultAta: props.feeVaultAta,
       disputeVaultAta: props.disputeVaultAta,
+      admin1FeeAta: props.admin1FeeAta,
+      admin2FeeAta: props.admin2FeeAta,
+      admin_1_fee_ata: props.admin1FeeAta,
+      admin_2_fee_ata: props.admin2FeeAta,
       txSig: sig,
     });
 
     txStatus.value = "Contrat financé.";
     emit("created", funded || draft);
   } catch (err) {
-    console.error("❌ Create contract error:", err);
+    logTxFailure(err);
     alert(
       "Transaction échouée.\n👉 Regarde la console.\n" + (err?.message || ""),
     );

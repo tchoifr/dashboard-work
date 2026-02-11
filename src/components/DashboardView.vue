@@ -260,11 +260,14 @@ function openCreateContract() {
   console.log("chain:", walletConfigSafe.value.chain)
   console.log("feeVaultAta:", walletConfigSafe.value.feeVaultAta)
   console.log("disputeVaultAta:", walletConfigSafe.value.disputeVaultAta)
+  console.log("feeBps:", walletConfigSafe.value.feeBps)
   console.log("feePlatformBps:", walletConfigSafe.value.feePlatformBps)
   console.log("disputeFeeBps:", walletConfigSafe.value.disputeFeeBps)
   console.log("feeWallet:", walletConfigSafe.value.feeWallet)
   console.log("admin1:", walletConfigSafe.value.admin1)
   console.log("admin2:", walletConfigSafe.value.admin2)
+  console.log("admin1FeeAta:", walletConfigSafe.value.admin1FeeAta)
+  console.log("admin2FeeAta:", walletConfigSafe.value.admin2FeeAta)
 
   const checks = {
     programId: isPlaceholderKey(walletConfigSafe.value.programId),
@@ -273,7 +276,11 @@ function openCreateContract() {
     chain: !walletConfigSafe.value.chain,
     feeVaultAta: isPlaceholderKey(walletConfigSafe.value.feeVaultAta),
     disputeVaultAta: isPlaceholderKey(walletConfigSafe.value.disputeVaultAta),
-    feePlatformBps: !Number.isFinite(Number(walletConfigSafe.value.feePlatformBps)),
+    feeBps: !Number.isFinite(Number(walletConfigSafe.value.feeBps ?? walletConfigSafe.value.feePlatformBps)),
+    admin1: isPlaceholderKey(walletConfigSafe.value.admin1),
+    admin2: isPlaceholderKey(walletConfigSafe.value.admin2),
+    admin1FeeAta: isPlaceholderKey(walletConfigSafe.value.admin1FeeAta),
+    admin2FeeAta: isPlaceholderKey(walletConfigSafe.value.admin2FeeAta),
   }
 
   console.table(checks)
@@ -547,11 +554,14 @@ watch(
   :chain="walletConfigSafe.chain"
   :fee-vault-ata="walletConfigSafe.feeVaultAta"
   :dispute-vault-ata="walletConfigSafe.disputeVaultAta"
+  :fee-bps="walletConfigSafe.feeBps"
   :fee-platform-bps="walletConfigSafe.feePlatformBps"
   :dispute-fee-bps="walletConfigSafe.disputeFeeBps"
   :fee-wallet="walletConfigSafe.feeWallet"
   :admin1="walletConfigSafe.admin1"
   :admin2="walletConfigSafe.admin2"
+  :admin1-fee-ata="walletConfigSafe.admin1FeeAta"
+  :admin2-fee-ata="walletConfigSafe.admin2FeeAta"
   @created="createContractSuccess"
   @close="closeCreateContract"
 />
@@ -570,6 +580,8 @@ watch(
   :fee-wallet="walletConfigSafe.feeWallet"
   :admin1="walletConfigSafe.admin1"
   :admin2="walletConfigSafe.admin2"
+  :admin1-fee-ata="walletConfigSafe.admin1FeeAta"
+  :admin2-fee-ata="walletConfigSafe.admin2FeeAta"
   @updated="handleContractUpdated"
   @close="closeContractPreview"
 />

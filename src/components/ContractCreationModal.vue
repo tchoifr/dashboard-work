@@ -13,6 +13,7 @@ const props = defineProps({
   usdcMint: String,
   chain: String,
   rpcUrl: String,
+  feeBps: Number,
   feeVaultAta: String,
   disputeVaultAta: String,
   feePlatformBps: Number,
@@ -20,6 +21,8 @@ const props = defineProps({
   feeWallet: String,
   admin1: String,
   admin2: String,
+  admin1FeeAta: String,
+  admin2FeeAta: String,
 })
 
 const emit = defineEmits(["close", "created"])
