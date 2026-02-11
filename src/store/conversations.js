@@ -10,6 +10,22 @@ import { createMessage, deleteMessage as deleteMessageApi } from "../services/me
 import { useAuthStore } from "./auth"
 
 const normalizeId = (v) => String(v ?? "")
+const normalizeFriend = (friend) => {
+  const uuid = friend?.uuid ? String(friend.uuid) : ""
+  const walletAddress =
+    friend?.walletAddress ||
+    friend?.wallet_address ||
+    friend?.wallet ||
+    null
+  const label =
+    friend?.label ||
+    friend?.username ||
+    friend?.name ||
+    walletAddress ||
+    "Unknown friend"
+
+  return { uuid, walletAddress, label }
+}
 
 const formatTime = (date) =>
   new Date(date).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
@@ -43,11 +59,9 @@ export const useConversationStore = defineStore("conversations", {
 
   getters: {
     friendOptions: (state) =>
-      state.friends.map((f) => ({
-        label: f.username,
-        value: f.uuid,
-        walletAddress: f.walletAddress || null,
-      })),
+      state.friends
+        .map((f) => normalizeFriend(f))
+        .filter((f) => !!f.uuid),
 
     activeConversation(state) {
       const id = normalizeId(state.activeConversationId)
@@ -114,7 +128,9 @@ export const useConversationStore = defineStore("conversations", {
       this.loadingFriends = true
       try {
         const data = await listFriends()
-        this.friends = Array.isArray(data) ? data : []
+        this.friends = Array.isArray(data)
+          ? data.map((friend) => normalizeFriend(friend)).filter((friend) => !!friend.uuid)
+          : []
       } catch (e) {
         console.error("fetchFriends failed", e?.response?.status, e?.response?.data || e)
         this.friends = []

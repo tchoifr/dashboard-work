@@ -105,16 +105,16 @@ onBeforeUnmount(() => {
         <span>Freelancer</span>
         <div class="select-shell">
           <select v-model="form.employer">
-            <option disabled value="">Select a freelancer</option>
+            <option disabled :value="null">Select a freelancer</option>
             <option v-for="client in employers" :key="client.uuid" :value="client">
-              {{ client.label || client.username || client.wallet_address }}
+              {{ client.label }}
             </option>
           </select>
         </div>
 
         <div v-if="form.employer" class="muted" style="margin-top: 6px; font-size: 12px;">
           <div><b>UUID:</b> {{ form.employer.uuid }}</div>
-          <div><b>Wallet:</b> {{ form.employer.wallet_address || form.employer.walletAddress }}</div>
+          <div><b>Wallet:</b> {{ form.employer.walletAddress }}</div>
         </div>
       </label>
 

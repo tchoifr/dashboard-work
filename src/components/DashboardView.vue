@@ -175,6 +175,15 @@ const previewContract = ref(null)
 // ==========================
 const conversationStore = useConversationStore()
 const friendOptions = computed(() => conversationStore.friendOptions)
+const contractEmployers = computed(() =>
+  friendOptions.value
+    .map((friend) => ({
+      uuid: friend.uuid,
+      walletAddress: friend.walletAddress,
+      label: friend.label,
+    }))
+    .filter((friend) => !!friend.uuid && !!friend.walletAddress),
+)
 
 // ⚠️ selon ton store :
 // - si tu as conversationPreviews + activeMessages -> adapte ici
@@ -235,6 +244,11 @@ function openCreateContract() {
   }
   if (!walletGuardOk.value) {
     alert(walletGuardError.value || "Wallet Phantom non validé.")
+    return
+  }
+
+  if (!contractEmployers.value.length) {
+    alert("Aucun freelance disponible. Vérifie la liste /api/friends.")
     return
   }
 
@@ -526,7 +540,7 @@ watch(
     ========================== -->
     <div v-if="showCreateContract" class="overlay" @click.self="closeCreateContract">
      <ContractCreationModal
-  :employers="friendOptions"
+  :employers="contractEmployers"
   :program-id="walletConfigSafe.programId"
   :usdc-mint="walletConfigSafe.usdcMint"
   :rpc-url="walletConfigSafe.rpcUrl"
