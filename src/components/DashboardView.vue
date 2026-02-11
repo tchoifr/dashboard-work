@@ -266,8 +266,6 @@ function openCreateContract() {
   console.log("feeWallet:", walletConfigSafe.value.feeWallet)
   console.log("admin1:", walletConfigSafe.value.admin1)
   console.log("admin2:", walletConfigSafe.value.admin2)
-  console.log("admin1FeeAta:", walletConfigSafe.value.admin1FeeAta)
-  console.log("admin2FeeAta:", walletConfigSafe.value.admin2FeeAta)
 
   const checks = {
     programId: isPlaceholderKey(walletConfigSafe.value.programId),
@@ -279,8 +277,6 @@ function openCreateContract() {
     feeBps: !Number.isFinite(Number(walletConfigSafe.value.feeBps ?? walletConfigSafe.value.feePlatformBps)),
     admin1: isPlaceholderKey(walletConfigSafe.value.admin1),
     admin2: isPlaceholderKey(walletConfigSafe.value.admin2),
-    admin1FeeAta: isPlaceholderKey(walletConfigSafe.value.admin1FeeAta),
-    admin2FeeAta: isPlaceholderKey(walletConfigSafe.value.admin2FeeAta),
   }
 
   console.table(checks)
@@ -553,6 +549,7 @@ watch(
   :rpc-url="walletConfigSafe.rpcUrl"
   :chain="walletConfigSafe.chain"
   :fee-vault-ata="walletConfigSafe.feeVaultAta"
+  :fee-usdc-ata="walletConfigSafe.feeUsdcAta"
   :dispute-vault-ata="walletConfigSafe.disputeVaultAta"
   :fee-bps="walletConfigSafe.feeBps"
   :fee-platform-bps="walletConfigSafe.feePlatformBps"

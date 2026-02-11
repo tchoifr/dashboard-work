@@ -171,23 +171,8 @@ export async function submitForm({
     const amountBaseUnitsBigInt = BigInt(amountBaseUnits.toString());
 
     // 6) admins (2/2)
-    if (!props.admin1 || !props.admin2) {
-      alert("Configuration manquante: admin1/admin2.");
-      return;
-    }
-    const admin1Pk = new PublicKey(props.admin1);
-    const admin2Pk = new PublicKey(props.admin2);
-
-    if (!props.admin1FeeAta) {
-      alert("Configuration manquante: admin1FeeAta.");
-      return;
-    }
-    if (!props.admin2FeeAta) {
-      alert("Configuration manquante: admin2FeeAta.");
-      return;
-    }
-    const admin1FeeAtaPk = new PublicKey(props.admin1FeeAta);
-    const admin2FeeAtaPk = new PublicKey(props.admin2FeeAta);
+    const admin1Pk = props.admin1 ? new PublicKey(props.admin1) : publicKey;
+    const admin2Pk = props.admin2 ? new PublicKey(props.admin2) : publicKey;
 
     // 7) PDAs (escrowState + vault)
     const contractId32 = makeContractId32();
@@ -221,45 +206,25 @@ export async function submitForm({
       return;
     }
 
-    // 9) comptes fee (Byhnex) : fournis par /wallet/config, pas de fallback
-    if (!props.feeWallet) {
-      alert("Configuration manquante: feeWallet.");
-      return;
-    }
-    if (!props.feeVaultAta) {
-      alert("Configuration manquante: feeVaultAta.");
-      return;
-    }
-    const feeWalletPk = new PublicKey(props.feeWallet);
-    const feeUsdcAta = new PublicKey(props.feeVaultAta);
-    const feeAtaInfo = await getAccount(connection, feeUsdcAta);
-    if (!feeAtaInfo.owner.equals(feeWalletPk)) {
-      alert("fee_usdc_ata invalide: owner != feeWallet.");
-      return;
-    }
-    if (!feeAtaInfo.mint.equals(mintPk)) {
-      alert("fee_usdc_ata invalide: mint != usdc_mint.");
-      return;
-    }
+    // 9) comptes fee (optionnels selon l'IDL du programme buildé)
+    const feeUsdcAtaFromConfig = props.feeUsdcAta || props.feeVaultAta || null;
+    const hasFeeWalletConfig = !!props.feeWallet;
+    const hasFeeVaultConfig = !!feeUsdcAtaFromConfig;
+    let feeWalletPk = null;
+    let feeUsdcAta = null;
 
-    const admin1FeeAtaInfo = await getAccount(connection, admin1FeeAtaPk);
-    if (!admin1FeeAtaInfo.owner.equals(admin1Pk)) {
-      alert("admin1_fee_account invalide: owner != admin1.");
-      return;
-    }
-    if (!admin1FeeAtaInfo.mint.equals(mintPk)) {
-      alert("admin1_fee_account invalide: mint != usdc_mint.");
-      return;
-    }
-
-    const admin2FeeAtaInfo = await getAccount(connection, admin2FeeAtaPk);
-    if (!admin2FeeAtaInfo.owner.equals(admin2Pk)) {
-      alert("admin2_fee_account invalide: owner != admin2.");
-      return;
-    }
-    if (!admin2FeeAtaInfo.mint.equals(mintPk)) {
-      alert("admin2_fee_account invalide: mint != usdc_mint.");
-      return;
+    if (hasFeeWalletConfig && hasFeeVaultConfig) {
+      feeWalletPk = new PublicKey(props.feeWallet);
+      feeUsdcAta = new PublicKey(feeUsdcAtaFromConfig);
+      const feeAtaInfo = await getAccount(connection, feeUsdcAta);
+      if (!feeAtaInfo.owner.equals(feeWalletPk)) {
+        alert("fee_usdc_ata invalide: owner != feeWallet.");
+        return;
+      }
+      if (!feeAtaInfo.mint.equals(mintPk)) {
+        alert("fee_usdc_ata invalide: mint != usdc_mint.");
+        return;
+      }
     }
 
     // 10) créer le draft DB (UUID du freelancer, PAS son wallet)
@@ -303,8 +268,8 @@ export async function submitForm({
       vaultPda,
       usdcMint: mintPk,
       initializerUsdcAta,
-      feeWallet: feeWalletPk,
-      feeUsdcAta,
+      feeWallet: feeWalletPk || undefined,
+      feeUsdcAta: feeUsdcAta || undefined,
     });
 
     // 12) notifier le back du funding + onchain addresses
@@ -314,6 +279,7 @@ export async function submitForm({
       chain: props.chain,
       programId: props.programId,
       usdcMint: props.usdcMint,
+      feeWallet: props.feeWallet ?? null,
       escrowStatePda: escrowStatePda.toBase58(),
 
       // ⚠️ dans ton back DTO: vaultAuthorityPda + escrowVaultAta
@@ -322,11 +288,13 @@ export async function submitForm({
       escrowVaultAta: vaultPda.toBase58(),
 
       feeVaultAta: props.feeVaultAta,
+      feeUsdcAta: feeUsdcAtaFromConfig,
+      fee_usdc_ata: feeUsdcAtaFromConfig,
       disputeVaultAta: props.disputeVaultAta,
-      admin1FeeAta: props.admin1FeeAta,
-      admin2FeeAta: props.admin2FeeAta,
-      admin_1_fee_ata: props.admin1FeeAta,
-      admin_2_fee_ata: props.admin2FeeAta,
+      admin1FeeAta: props.admin1FeeAta ?? null,
+      admin2FeeAta: props.admin2FeeAta ?? null,
+      admin_1_fee_ata: props.admin1FeeAta ?? null,
+      admin_2_fee_ata: props.admin2FeeAta ?? null,
       txSig: sig,
     });
 

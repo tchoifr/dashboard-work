@@ -20,5 +20,10 @@ export const openDispute = (uuid, reason) =>
 export const voteDispute = (id, vote) =>
   http.put(`/api/disputes/${id}/vote`, { vote }).then((r) => r.data)
 
-export const resolveDispute = (id, txSig) =>
-  http.post(`/api/disputes/${id}/resolve`, { txSig }).then((r) => r.data)
+export const resolveDispute = (id, payload) => {
+  const body =
+    payload && typeof payload === "object"
+      ? payload
+      : { txSig: payload }
+  return http.post(`/api/disputes/${id}/resolve`, body).then((r) => r.data)
+}

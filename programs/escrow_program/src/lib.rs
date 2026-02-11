@@ -1,12 +1,13 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
-use std::str::FromStr;
 
 declare_id!("7ztZfuYcFzPF4tgy1iFkHhTNSowKFPGdUx3QNoGg12Re");
 
-/// Fee wallet fixe (pubkey constant, pas de parsing on-chain)
-pub const FEE_WALLET: &str = "Brn2npkdBZjnhS4VSFNYbLWCBZ5n7hakVcnpNGxzXosJ";
-
+// Brn2npkdBZjnhS4VSFNYbLWCBZ5n7hakVcnpNGxzXosJ
+pub const FEE_WALLET_PUBKEY: Pubkey = Pubkey::new_from_array([
+    157, 97, 38, 69, 64, 110, 141, 128, 10, 2, 230, 210, 227, 254, 227, 92,
+    63, 91, 63, 222, 97, 251, 191, 234, 143, 38, 30, 180, 166, 130, 74, 118
+]);
 #[program]
 pub mod escrow_program {
     use super::*;
@@ -36,8 +37,7 @@ pub mod escrow_program {
 
         escrow.amount = amount;
         escrow.fee_bps = fee_bps;
-        let fee_wallet = Pubkey::from_str(FEE_WALLET).map_err(|_| error!(EscrowError::InvalidFeeWallet))?;
-        escrow.fee_wallet = fee_wallet;
+        escrow.fee_wallet = FEE_WALLET_PUBKEY;
 
         escrow.status = EscrowStatus::Initialized;
         escrow.finalized = false;
@@ -646,6 +646,7 @@ pub enum EscrowError {
     InvalidAmount,
     #[msg("FeeBps invalide")]
     InvalidFeeBps,
+    // (tu peux garder cette erreur même si on ne parse plus)
     #[msg("Fee wallet invalide")]
     InvalidFeeWallet,
     #[msg("Non autorisé")]

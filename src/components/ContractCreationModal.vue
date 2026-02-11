@@ -15,6 +15,7 @@ const props = defineProps({
   rpcUrl: String,
   feeBps: Number,
   feeVaultAta: String,
+  feeUsdcAta: String,
   disputeVaultAta: String,
   feePlatformBps: Number,
   disputeFeeBps: Number,

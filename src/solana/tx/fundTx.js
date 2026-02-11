@@ -8,7 +8,17 @@ const resolveMethod = (program, names) => {
   if (!methodName) {
     throw new Error(`Méthode absente de l'IDL: ${candidates.join(" / ")}`)
   }
-  return program.methods[methodName].bind(program.methods)
+  return {
+    methodName,
+    method: program.methods[methodName].bind(program.methods),
+  }
+}
+
+const methodAccountNames = (program, methodName) => {
+  const instructions = program?.idl?.instructions || []
+  const ix = instructions.find((item) => item?.name === methodName)
+  const names = (ix?.accounts || []).map((acc) => acc?.name).filter(Boolean)
+  return new Set(names)
 }
 
 export const initializeEscrow = async ({
@@ -27,16 +37,34 @@ export const initializeEscrow = async ({
   feeWallet,
   feeUsdcAta,
 }) => {
-  const method = resolveMethod(program, ["initializeEscrow", "initialize_escrow"])
+  const { methodName, method } = resolveMethod(program, ["initializeEscrow", "initialize_escrow"])
+  const accountNames = methodAccountNames(program, methodName)
+  const needsFeeWallet = accountNames.has("feeWallet") || accountNames.has("fee_wallet")
+  const needsFeeUsdcAta = accountNames.has("feeUsdcAta") || accountNames.has("fee_usdc_ata")
 
   if (!Array.isArray(contractId32) || contractId32.length !== 32) {
     throw new Error("contractId32 invalide (Array(32) u8)")
   }
   if (!Number.isFinite(Number(feeBps))) throw new Error("feeBps manquant.")
-  if (!feeWallet) throw new Error("feeWallet manquant.")
-  if (!feeUsdcAta) throw new Error("feeUsdcAta manquant.")
+  if (needsFeeWallet && !feeWallet) throw new Error("feeWallet manquant.")
+  if (needsFeeUsdcAta && !feeUsdcAta) throw new Error("feeUsdcAta manquant.")
   if (!initializerUsdcAta) throw new Error("initializerUsdcAta manquant.")
   if (!usdcMint) throw new Error("usdcMint manquant.")
+
+  const accounts = {
+    initializer: toPublicKey(initializer),
+    worker: toPublicKey(worker),
+    escrowState: toPublicKey(escrowStatePda),
+    vault: toPublicKey(vaultPda),
+    initializerUsdcAta: toPublicKey(initializerUsdcAta),
+    usdcMint: toPublicKey(usdcMint),
+    tokenProgram: TOKEN_PROGRAM_ID,
+    systemProgram: SystemProgram.programId,
+    rent: SYSVAR_RENT_PUBKEY,
+  }
+
+  if (needsFeeWallet) accounts.feeWallet = toPublicKey(feeWallet)
+  if (needsFeeUsdcAta) accounts.feeUsdcAta = toPublicKey(feeUsdcAta)
 
   const call = method(
     contractId32,
@@ -45,19 +73,7 @@ export const initializeEscrow = async ({
     toPublicKey(admin1),
     toPublicKey(admin2),
   )
-    .accounts({
-      initializer: toPublicKey(initializer),
-      worker: toPublicKey(worker),
-      escrowState: toPublicKey(escrowStatePda),
-      vault: toPublicKey(vaultPda),
-      initializerUsdcAta: toPublicKey(initializerUsdcAta),
-      feeWallet: toPublicKey(feeWallet),
-      feeUsdcAta: toPublicKey(feeUsdcAta),
-      usdcMint: toPublicKey(usdcMint),
-      tokenProgram: TOKEN_PROGRAM_ID,
-      systemProgram: SystemProgram.programId,
-      rent: SYSVAR_RENT_PUBKEY,
-    })
+    .accounts(accounts)
 
   try {
     return await call.rpc()

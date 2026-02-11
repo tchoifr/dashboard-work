@@ -17,9 +17,21 @@ const normalizeWalletConfig = (data) => {
       data.fee_platform_bps ??
       null,
     feeVaultAta: data.feeVaultAta ?? data.fee_vault_ata ?? null,
+    feeUsdcAta:
+      data.feeUsdcAta ??
+      data.fee_usdc_ata ??
+      data.feeVaultAta ??
+      data.fee_vault_ata ??
+      null,
     disputeVaultAta: data.disputeVaultAta ?? data.dispute_vault_ata ?? null,
     feePlatformBps: data.feePlatformBps ?? data.fee_platform_bps ?? null,
     disputeFeeBps: data.disputeFeeBps ?? data.dispute_fee_bps ?? null,
+    disputeAdminFeeEachBps:
+      data.disputeAdminFeeEachBps ??
+      data.dispute_admin_fee_each_bps ??
+      data.disputeFeeAdminEachBps ??
+      data.dispute_fee_admin_each_bps ??
+      null,
     feeWallet: data.feeWallet ?? data.fee_wallet ?? null,
     admin1: data.admin1 ?? data.admin_1 ?? null,
     admin2: data.admin2 ?? data.admin_2 ?? null,
