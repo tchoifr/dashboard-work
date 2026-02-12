@@ -259,7 +259,6 @@ function openCreateContract() {
   console.log("rpcUrl:", walletConfigSafe.value.rpcUrl)
   console.log("chain:", walletConfigSafe.value.chain)
   console.log("feeVaultAta:", walletConfigSafe.value.feeVaultAta)
-  console.log("disputeVaultAta:", walletConfigSafe.value.disputeVaultAta)
   console.log("feeBps:", walletConfigSafe.value.feeBps)
   console.log("feePlatformBps:", walletConfigSafe.value.feePlatformBps)
   console.log("disputeFeeBps:", walletConfigSafe.value.disputeFeeBps)
@@ -273,7 +272,6 @@ function openCreateContract() {
     rpcUrl: !walletConfigSafe.value.rpcUrl,
     chain: !walletConfigSafe.value.chain,
     feeVaultAta: isPlaceholderKey(walletConfigSafe.value.feeVaultAta),
-    disputeVaultAta: isPlaceholderKey(walletConfigSafe.value.disputeVaultAta),
     feeBps: !Number.isFinite(Number(walletConfigSafe.value.feeBps ?? walletConfigSafe.value.feePlatformBps)),
     admin1: isPlaceholderKey(walletConfigSafe.value.admin1),
     admin2: isPlaceholderKey(walletConfigSafe.value.admin2),
@@ -550,7 +548,6 @@ watch(
   :chain="walletConfigSafe.chain"
   :fee-vault-ata="walletConfigSafe.feeVaultAta"
   :fee-usdc-ata="walletConfigSafe.feeUsdcAta"
-  :dispute-vault-ata="walletConfigSafe.disputeVaultAta"
   :fee-bps="walletConfigSafe.feeBps"
   :fee-platform-bps="walletConfigSafe.feePlatformBps"
   :dispute-fee-bps="walletConfigSafe.disputeFeeBps"

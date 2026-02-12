@@ -23,7 +23,6 @@ const normalizeWalletConfig = (data) => {
       data.feeVaultAta ??
       data.fee_vault_ata ??
       null,
-    disputeVaultAta: data.disputeVaultAta ?? data.dispute_vault_ata ?? null,
     feePlatformBps: data.feePlatformBps ?? data.fee_platform_bps ?? null,
     disputeFeeBps: data.disputeFeeBps ?? data.dispute_fee_bps ?? null,
     disputeAdminFeeEachBps:

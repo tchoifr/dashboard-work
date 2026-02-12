@@ -16,7 +16,6 @@ const props = defineProps({
   feeBps: Number,
   feeVaultAta: String,
   feeUsdcAta: String,
-  disputeVaultAta: String,
   feePlatformBps: Number,
   disputeFeeBps: Number,
   feeWallet: String,

@@ -1,5 +1,5 @@
 import { SystemProgram, SYSVAR_RENT_PUBKEY } from "@solana/web3.js"
-import { TOKEN_PROGRAM_ID } from "@solana/spl-token"
+import { TOKEN_PROGRAM_ID, getMint } from "@solana/spl-token"
 import { toPublicKey } from "../keys"
 
 const resolveMethod = (program, names) => {
@@ -14,14 +14,8 @@ const resolveMethod = (program, names) => {
   }
 }
 
-const methodAccountNames = (program, methodName) => {
-  const instructions = program?.idl?.instructions || []
-  const ix = instructions.find((item) => item?.name === methodName)
-  const names = (ix?.accounts || []).map((acc) => acc?.name).filter(Boolean)
-  return new Set(names)
-}
-
 export const initializeEscrow = async ({
+  
   program,
   contractId32,
   amountBaseUnitsBN,
@@ -34,79 +28,93 @@ export const initializeEscrow = async ({
   vaultPda,
   usdcMint,
   initializerUsdcAta,
-
-  // NEW: ATA USDC de BYHNEX (owner = wallet Bynhex)
-  adminFeeAccount,
+  adminFeeAccount, // = BYNNEX_FEE_VAULT_ATA
 }) => {
-  const { methodName, method } = resolveMethod(program, ["initializeEscrow", "initialize_escrow"])
-  const accountNames = methodAccountNames(program, methodName)
+  const { method } = resolveMethod(program, [
+    "initializeEscrow",
+    "initialize_escrow",
+  ])
+console.log("initializerUsdcAta:", initializerUsdcAta)
+console.log("adminFeeAccount:", adminFeeAccount)
+console.log("usdcMint:", usdcMint)
+console.log("escrowStatePda:", escrowStatePda.toBase58())
+console.log("vaultPda:", vaultPda.toBase58())
 
-  // Nouveau compte requis par le Rust modifié
-  const needsAdminFeeAccount =
-    accountNames.has("adminFeeAccount") || accountNames.has("admin_fee_account")
+  // -----------------------------
+  // VALIDATIONS
+  // -----------------------------
 
   if (!Array.isArray(contractId32) || contractId32.length !== 32) {
     throw new Error("contractId32 invalide (Array(32) u8)")
   }
-  if (!amountBaseUnitsBN) throw new Error("amountBaseUnitsBN manquant.")
-  if (!Number.isFinite(Number(feeBps))) throw new Error("feeBps manquant.")
-  if (!initializerUsdcAta) throw new Error("initializerUsdcAta manquant.")
-  if (!usdcMint) throw new Error("usdcMint manquant.")
 
-  if (needsAdminFeeAccount && !adminFeeAccount) {
-    throw new Error("adminFeeAccount manquant (ATA USDC du wallet Bynhex).")
+  if (!amountBaseUnitsBN) {
+    throw new Error("amountBaseUnitsBN manquant.")
   }
+
+  if (!Number.isFinite(Number(feeBps))) {
+    throw new Error("feeBps manquant.")
+  }
+
+  if (!initializerUsdcAta) {
+    throw new Error("initializerUsdcAta manquant.")
+  }
+
+  if (!usdcMint) {
+    throw new Error("usdcMint manquant.")
+  }
+
+  if (!adminFeeAccount) {
+    throw new Error(
+      "adminFeeAccount manquant (BYNNEX_FEE_VAULT_ATA du backend)."
+    )
+  }
+
+  const connection = program?.provider?.connection
+  if (!connection) {
+    throw new Error("Connection Solana introuvable.")
+  }
+
+  // -----------------------------
+  // ACCOUNTS (camelCase ONLY)
+  // -----------------------------
 
   const accounts = {
     initializer: toPublicKey(initializer),
     worker: toPublicKey(worker),
+
     escrowState: toPublicKey(escrowStatePda),
     vault: toPublicKey(vaultPda),
-    initializerUsdcAta: toPublicKey(initializerUsdcAta),
 
-    // ✨ nouveau
-    ...(needsAdminFeeAccount
-      ? { adminFeeAccount: toPublicKey(adminFeeAccount) }
-      : {}),
+    initializerUsdcAta: toPublicKey(initializerUsdcAta),
+    adminFeeAccount: toPublicKey(adminFeeAccount),
 
     usdcMint: toPublicKey(usdcMint),
+
     tokenProgram: TOKEN_PROGRAM_ID,
     systemProgram: SystemProgram.programId,
     rent: SYSVAR_RENT_PUBKEY,
   }
 
-  const call = method(
+  // -----------------------------
+  // SECURITE : Vérifie que le mint est valide
+  // -----------------------------
+
+  await getMint(connection, accounts.usdcMint)
+
+  // -----------------------------
+  // CALL PROGRAM
+  // -----------------------------
+
+  const tx = await method(
     contractId32,
     amountBaseUnitsBN,
     feeBps,
     toPublicKey(admin1),
     toPublicKey(admin2),
-  ).accounts(accounts)
+  )
+    .accounts(accounts)
+    .rpc()
 
-  try {
-    return await call.rpc()
-  } catch (rpcError) {
-    console.error("❌ [initializeEscrow] rpc() a échoué:", rpcError?.message || rpcError)
-
-    if (Array.isArray(rpcError?.logs) && rpcError.logs.length) {
-      console.error("📜 [initializeEscrow] logs rpc:")
-      for (const line of rpcError.logs) console.error("   ", line)
-    }
-
-    try {
-      const sim = await call.simulate()
-      const simLogs = sim?.raw?.logs || sim?.logs || []
-      if (Array.isArray(simLogs) && simLogs.length) {
-        console.error("🧪 [initializeEscrow] logs simulation complets:")
-        for (const line of simLogs) console.error("   ", line)
-      }
-    } catch (simError) {
-      console.error(
-        "⚠️ [initializeEscrow] impossible de simuler après échec:",
-        simError?.message || simError
-      )
-    }
-
-    throw rpcError
-  }
+  return tx
 }

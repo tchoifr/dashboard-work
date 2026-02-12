@@ -268,33 +268,16 @@ export async function submitForm({
       vaultPda,
       usdcMint: mintPk,
       initializerUsdcAta,
-      feeWallet: feeWalletPk || undefined,
-      feeUsdcAta: feeUsdcAta || undefined,
+      adminFeeAccount: feeUsdcAta || undefined,
     });
 
     // 12) notifier le back du funding + onchain addresses
     txStatus.value = "Envoi du funding...";
 
     const funded = await fundContract(contractUuid, {
-      chain: props.chain,
-      programId: props.programId,
-      usdcMint: props.usdcMint,
-      feeWallet: props.feeWallet ?? null,
       escrowStatePda: escrowStatePda.toBase58(),
-
-      // ⚠️ dans ton back DTO: vaultAuthorityPda + escrowVaultAta
-      // Ici on garde ton mapping existant (à adapter si ton programme utilise un autre PDA).
       vaultAuthorityPda: escrowStatePda.toBase58(),
       escrowVaultAta: vaultPda.toBase58(),
-
-      feeVaultAta: props.feeVaultAta,
-      feeUsdcAta: feeUsdcAtaFromConfig,
-      fee_usdc_ata: feeUsdcAtaFromConfig,
-      disputeVaultAta: props.disputeVaultAta,
-      admin1FeeAta: props.admin1FeeAta ?? null,
-      admin2FeeAta: props.admin2FeeAta ?? null,
-      admin_1_fee_ata: props.admin1FeeAta ?? null,
-      admin_2_fee_ata: props.admin2FeeAta ?? null,
       txSig: sig,
     });
 
