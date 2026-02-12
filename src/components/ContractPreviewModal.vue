@@ -90,7 +90,7 @@ const handleDispute = createHandleDispute({
     <header class="modal-head">
       <div>
         <p class="eyebrow">Contract Preview</p>
-        <h3>{{ contract.title || contract.name }}</h3>
+        <h3>{{ contract.title || contract.name || `Contract ${contract.uuid || ""}` }}</h3>
         <p class="muted">
           {{ contract?.freelancer?.username || contract?.freelancer?.walletAddress || " " }}
         </p>

@@ -23,7 +23,15 @@ export function useContractPreviewLabels({ pick, startAt, endAt, createdAt }) {
   })
 
   const humanAmount = computed(() => {
-    const amount = pick(["amountUsdc", "amount_usdc", "amount"])
+    const amount = pick([
+      "amountUsdc",
+      "amount_usdc",
+      "amountTotalUsdc",
+      "amount_total_usdc",
+      "amount",
+      "totalUsdc",
+      "total_usdc",
+    ])
     if (amount == null) return "-"
     return `${Number(amount).toFixed(2)} USDC`
   })

@@ -12,20 +12,13 @@ import { loadProgram } from "../solana/program";
 import { findEscrowPdas } from "../solana/pdas";
 import { initializeEscrow } from "../solana/tx/fundTx";
 import { ensurePhantom } from "./phantom";
-import { makeContractId32 } from "./utils";
+import { parseContractIdU64 } from "./utils";
 
 const DEVNET_MAINNET_USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 
-function requireValidContractId32(contractId32) {
-  if (!Array.isArray(contractId32) || contractId32.length !== 32) {
-    throw new Error("contract_id invalide: 32 bytes requis.");
-  }
-  const isByte = contractId32.every(
-    (value) => Number.isInteger(value) && value >= 0 && value <= 255,
-  );
-  if (!isByte) {
-    throw new Error("contract_id invalide: doit être un tableau d'octets.");
-  }
+function requireValidContractIdU64(value) {
+  const normalized = parseContractIdU64(value);
+  return new BN(normalized, 10);
 }
 
 function validateClusterConfig({ chain, rpcUrl, usdcMint }) {
@@ -174,17 +167,7 @@ export async function submitForm({
     const admin1Pk = props.admin1 ? new PublicKey(props.admin1) : publicKey;
     const admin2Pk = props.admin2 ? new PublicKey(props.admin2) : publicKey;
 
-    // 7) PDAs (escrowState + vault)
-    const contractId32 = makeContractId32();
-    requireValidContractId32(contractId32);
-    const { escrowStatePda, vaultPda } = await findEscrowPdas(
-      props.programId,
-      publicKey,
-      workerPk,
-      contractId32,
-    );
-
-    // 8) ATA source (employer)
+    // 7) ATA source (employer)
     const { ata: initializerUsdcAta } = await getOrCreateAta({
       connection,
       provider,
@@ -227,7 +210,7 @@ export async function submitForm({
       }
     }
 
-    // 10) créer le draft DB (UUID du freelancer, PAS son wallet)
+    // 8) créer le draft DB (UUID du freelancer, PAS son wallet)
     txStatus.value = "Création du draft...";
 
     const amountTotalUsdc = Number(amountUsdcUi).toFixed(6);
@@ -245,8 +228,27 @@ export async function submitForm({
     if (!contractUuid) {
       throw new Error("contract_uuid manquant après création du draft");
     }
+    const contractIdU64Raw =
+      draft?.contract?.contractIdU64 ||
+      draft?.contract?.contract_id_u64 ||
+      draft?.contract?.onchain?.contractIdU64 ||
+      draft?.contract?.onchain?.contract_id_u64 ||
+      draft?.contractIdU64 ||
+      draft?.contract_id_u64;
+    if (contractIdU64Raw === null || contractIdU64Raw === undefined || contractIdU64Raw === "") {
+      throw new Error("contractIdU64 manquant côté backend.");
+    }
+    const contractIdU64 = requireValidContractIdU64(contractIdU64Raw);
 
-    // 11) init escrow on-chain
+    // 9) PDAs (escrowState + vault) à partir du contractIdU64 backend
+    const { escrowStatePda, vaultPda } = await findEscrowPdas(
+      props.programId,
+      publicKey,
+      workerPk,
+      contractIdU64,
+    );
+
+    // 10) init escrow on-chain
     txStatus.value = "Signature initialize_escrow...";
 
     const feeBps = Number(props.feeBps ?? props.feePlatformBps);
@@ -257,7 +259,7 @@ export async function submitForm({
 
     const sig = await initializeEscrow({
       program,
-      contractId32,
+      contractIdU64,
       amountBaseUnitsBN: amountBaseUnits,
       feeBps,
       initializer: publicKey,
@@ -271,18 +273,33 @@ export async function submitForm({
       adminFeeAccount: feeUsdcAta || undefined,
     });
 
-    // 12) notifier le back du funding + onchain addresses
+    // 11) notifier le back du funding + onchain addresses
     txStatus.value = "Envoi du funding...";
 
     const funded = await fundContract(contractUuid, {
       escrowStatePda: escrowStatePda.toBase58(),
-      vaultAuthorityPda: escrowStatePda.toBase58(),
-      escrowVaultAta: vaultPda.toBase58(),
+      vaultPda: vaultPda.toBase58(),
       txSig: sig,
     });
 
     txStatus.value = "Contrat financé.";
-    emit("created", funded || draft);
+    const draftContract = draft?.contract || draft || {}
+    const fundedContract = funded?.contract || funded || {}
+    emit("created", {
+      ...draftContract,
+      ...fundedContract,
+      uuid: draftContract.uuid || fundedContract.uuid || contractUuid,
+      title: draftContract.title || String(form.title || "").trim(),
+      description: draftContract.description || String(form.description || "").trim(),
+      startAt: draftContract.startAt || form.timeline?.start || null,
+      endAt: draftContract.endAt || form.timeline?.end || null,
+      contractIdU64:
+        draftContract.contractIdU64 ||
+        draftContract.contract_id_u64 ||
+        String(contractIdU64Raw),
+      vaultPda: fundedContract.vaultPda || fundedContract.vault_pda || vaultPda.toBase58(),
+      escrowStatePda: fundedContract.escrowStatePda || fundedContract.escrow_state_pda || escrowStatePda.toBase58(),
+    });
   } catch (err) {
     logTxFailure(err);
     alert(

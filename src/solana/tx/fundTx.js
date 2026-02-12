@@ -1,5 +1,6 @@
 import { SystemProgram, SYSVAR_RENT_PUBKEY } from "@solana/web3.js"
 import { TOKEN_PROGRAM_ID, getMint } from "@solana/spl-token"
+import BN from "bn.js"
 import { toPublicKey } from "../keys"
 
 const resolveMethod = (program, names) => {
@@ -14,10 +15,30 @@ const resolveMethod = (program, names) => {
   }
 }
 
+const U64_MAX = (1n << 64n) - 1n
+
+const normalizeU64Bn = (value) => {
+  if (BN.isBN(value)) return value
+
+  if (value === null || value === undefined || value === "") {
+    throw new Error("contractIdU64 manquant.")
+  }
+
+  const asString = typeof value === "string" ? value.trim() : String(value)
+  if (!/^\d+$/.test(asString)) {
+    throw new Error("contractIdU64 invalide: entier non signé attendu.")
+  }
+  const asBigInt = BigInt(asString)
+  if (asBigInt < 0n || asBigInt > U64_MAX) {
+    throw new Error("contractIdU64 hors plage u64.")
+  }
+  return new BN(asString, 10)
+}
+
 export const initializeEscrow = async ({
   
   program,
-  contractId32,
+  contractIdU64,
   amountBaseUnitsBN,
   feeBps,
   initializer,
@@ -34,19 +55,12 @@ export const initializeEscrow = async ({
     "initializeEscrow",
     "initialize_escrow",
   ])
-console.log("initializerUsdcAta:", initializerUsdcAta)
-console.log("adminFeeAccount:", adminFeeAccount)
-console.log("usdcMint:", usdcMint)
-console.log("escrowStatePda:", escrowStatePda.toBase58())
-console.log("vaultPda:", vaultPda.toBase58())
 
   // -----------------------------
   // VALIDATIONS
   // -----------------------------
 
-  if (!Array.isArray(contractId32) || contractId32.length !== 32) {
-    throw new Error("contractId32 invalide (Array(32) u8)")
-  }
+  const contractIdArg = normalizeU64Bn(contractIdU64)
 
   if (!amountBaseUnitsBN) {
     throw new Error("amountBaseUnitsBN manquant.")
@@ -107,7 +121,7 @@ console.log("vaultPda:", vaultPda.toBase58())
   // -----------------------------
 
   const tx = await method(
-    contractId32,
+    contractIdArg,
     amountBaseUnitsBN,
     feeBps,
     toPublicKey(admin1),

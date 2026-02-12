@@ -14,119 +14,6 @@ export type EscrowProgram = {
   },
   "instructions": [
     {
-      "name": "adminVote",
-      "discriminator": [
-        141,
-        5,
-        163,
-        49,
-        144,
-        145,
-        114,
-        36
-      ],
-      "accounts": [
-        {
-          "name": "admin",
-          "signer": true
-        },
-        {
-          "name": "escrowState",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  101,
-                  115,
-                  99,
-                  114,
-                  111,
-                  119
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "escrow_state.initializer",
-                "account": "escrowState"
-              },
-              {
-                "kind": "account",
-                "path": "escrow_state.worker",
-                "account": "escrowState"
-              },
-              {
-                "kind": "account",
-                "path": "escrow_state.contract_id",
-                "account": "escrowState"
-              }
-            ]
-          }
-        }
-      ],
-      "args": [
-        {
-          "name": "voteForWorker",
-          "type": "bool"
-        }
-      ]
-    },
-    {
-      "name": "employerApproveCompletion",
-      "discriminator": [
-        103,
-        122,
-        168,
-        117,
-        133,
-        158,
-        218,
-        115
-      ],
-      "accounts": [
-        {
-          "name": "initializer",
-          "signer": true
-        },
-        {
-          "name": "escrowState",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  101,
-                  115,
-                  99,
-                  114,
-                  111,
-                  119
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "escrow_state.initializer",
-                "account": "escrowState"
-              },
-              {
-                "kind": "account",
-                "path": "escrow_state.worker",
-                "account": "escrowState"
-              },
-              {
-                "kind": "account",
-                "path": "escrow_state.contract_id",
-                "account": "escrowState"
-              }
-            ]
-          }
-        }
-      ],
-      "args": []
-    },
-    {
       "name": "initializeEscrow",
       "discriminator": [
         243,
@@ -195,7 +82,15 @@ export type EscrowProgram = {
               },
               {
                 "kind": "account",
-                "path": "escrowState"
+                "path": "initializer"
+              },
+              {
+                "kind": "account",
+                "path": "worker"
+              },
+              {
+                "kind": "arg",
+                "path": "contractId"
               }
             ]
           }
@@ -227,12 +122,7 @@ export type EscrowProgram = {
       "args": [
         {
           "name": "contractId",
-          "type": {
-            "array": [
-              "u8",
-              32
-            ]
-          }
+          "type": "u64"
         },
         {
           "name": "amount",
@@ -251,415 +141,6 @@ export type EscrowProgram = {
           "type": "pubkey"
         }
       ]
-    },
-    {
-      "name": "openDispute",
-      "discriminator": [
-        137,
-        25,
-        99,
-        119,
-        23,
-        223,
-        161,
-        42
-      ],
-      "accounts": [
-        {
-          "name": "signer",
-          "signer": true
-        },
-        {
-          "name": "escrowState",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  101,
-                  115,
-                  99,
-                  114,
-                  111,
-                  119
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "escrow_state.initializer",
-                "account": "escrowState"
-              },
-              {
-                "kind": "account",
-                "path": "escrow_state.worker",
-                "account": "escrowState"
-              },
-              {
-                "kind": "account",
-                "path": "escrow_state.contract_id",
-                "account": "escrowState"
-              }
-            ]
-          }
-        }
-      ],
-      "args": []
-    },
-    {
-      "name": "refundToEmployer",
-      "docs": [
-        "Litige résolu pour l'employer (pas d'annulation => on ne “refund” pas)",
-        "Ici : on envoie TOUT au worker ou on bloque ? (tu as dit : pas d'annulation)",
-        "=> on bloque l'action explicitement."
-      ],
-      "discriminator": [
-        136,
-        203,
-        247,
-        3,
-        218,
-        58,
-        228,
-        28
-      ],
-      "accounts": [
-        {
-          "name": "admin",
-          "signer": true
-        },
-        {
-          "name": "escrowState",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  101,
-                  115,
-                  99,
-                  114,
-                  111,
-                  119
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "escrow_state.initializer",
-                "account": "escrowState"
-              },
-              {
-                "kind": "account",
-                "path": "escrow_state.worker",
-                "account": "escrowState"
-              },
-              {
-                "kind": "account",
-                "path": "escrow_state.contract_id",
-                "account": "escrowState"
-              }
-            ]
-          }
-        }
-      ],
-      "args": []
-    },
-    {
-      "name": "releaseIfBothApproved",
-      "docs": [
-        "Release normal (pas de litige) :",
-        "-> tout le vault (montant NET) au worker",
-        "-> Bynhex a déjà pris 5% à la création"
-      ],
-      "discriminator": [
-        194,
-        43,
-        239,
-        174,
-        217,
-        74,
-        108,
-        57
-      ],
-      "accounts": [
-        {
-          "name": "caller",
-          "signer": true
-        },
-        {
-          "name": "escrowState",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  101,
-                  115,
-                  99,
-                  114,
-                  111,
-                  119
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "escrow_state.initializer",
-                "account": "escrowState"
-              },
-              {
-                "kind": "account",
-                "path": "escrow_state.worker",
-                "account": "escrowState"
-              },
-              {
-                "kind": "account",
-                "path": "escrow_state.contract_id",
-                "account": "escrowState"
-              }
-            ]
-          }
-        },
-        {
-          "name": "vault",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  118,
-                  97,
-                  117,
-                  108,
-                  116
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "escrowState"
-              }
-            ]
-          }
-        },
-        {
-          "name": "workerUsdcAta",
-          "writable": true
-        },
-        {
-          "name": "tokenProgram",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        }
-      ],
-      "args": []
-    },
-    {
-      "name": "releaseToWorker",
-      "docs": [
-        "Litige résolu pour le worker :",
-        "- prélève 15% du vault",
-        "- 7.5% -> admin1 ATA",
-        "- 7.5% -> admin2 ATA",
-        "- reste -> worker"
-      ],
-      "discriminator": [
-        54,
-        127,
-        2,
-        20,
-        203,
-        213,
-        225,
-        45
-      ],
-      "accounts": [
-        {
-          "name": "admin",
-          "signer": true
-        },
-        {
-          "name": "escrowState",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  101,
-                  115,
-                  99,
-                  114,
-                  111,
-                  119
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "escrow_state.initializer",
-                "account": "escrowState"
-              },
-              {
-                "kind": "account",
-                "path": "escrow_state.worker",
-                "account": "escrowState"
-              },
-              {
-                "kind": "account",
-                "path": "escrow_state.contract_id",
-                "account": "escrowState"
-              }
-            ]
-          }
-        },
-        {
-          "name": "vault",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  118,
-                  97,
-                  117,
-                  108,
-                  116
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "escrowState"
-              }
-            ]
-          }
-        },
-        {
-          "name": "workerUsdcAta",
-          "writable": true
-        },
-        {
-          "name": "admin1UsdcAta",
-          "writable": true
-        },
-        {
-          "name": "admin2UsdcAta",
-          "writable": true
-        },
-        {
-          "name": "tokenProgram",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        }
-      ],
-      "args": []
-    },
-    {
-      "name": "workerAccept",
-      "discriminator": [
-        156,
-        192,
-        23,
-        88,
-        168,
-        66,
-        85,
-        173
-      ],
-      "accounts": [
-        {
-          "name": "worker",
-          "signer": true
-        },
-        {
-          "name": "escrowState",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  101,
-                  115,
-                  99,
-                  114,
-                  111,
-                  119
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "escrow_state.initializer",
-                "account": "escrowState"
-              },
-              {
-                "kind": "account",
-                "path": "escrow_state.worker",
-                "account": "escrowState"
-              },
-              {
-                "kind": "account",
-                "path": "escrow_state.contract_id",
-                "account": "escrowState"
-              }
-            ]
-          }
-        }
-      ],
-      "args": []
-    },
-    {
-      "name": "workerApproveCompletion",
-      "discriminator": [
-        51,
-        38,
-        42,
-        75,
-        162,
-        207,
-        100,
-        148
-      ],
-      "accounts": [
-        {
-          "name": "worker",
-          "signer": true
-        },
-        {
-          "name": "escrowState",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  101,
-                  115,
-                  99,
-                  114,
-                  111,
-                  119
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "escrow_state.initializer",
-                "account": "escrowState"
-              },
-              {
-                "kind": "account",
-                "path": "escrow_state.worker",
-                "account": "escrowState"
-              },
-              {
-                "kind": "account",
-                "path": "escrow_state.contract_id",
-                "account": "escrowState"
-              }
-            ]
-          }
-        }
-      ],
-      "args": []
     }
   ],
   "accounts": [
@@ -686,67 +167,22 @@ export type EscrowProgram = {
     {
       "code": 6001,
       "name": "invalidFeeBps",
-      "msg": "FeeBps invalide"
+      "msg": "Fee invalide"
     },
     {
       "code": 6002,
-      "name": "unauthorized",
-      "msg": "Non autorisé"
+      "name": "mathError",
+      "msg": "Erreur math"
     },
     {
       "code": 6003,
-      "name": "badStatus",
-      "msg": "Mauvais status pour cette action"
+      "name": "invalidInitializerAta",
+      "msg": "Initializer ATA invalide"
     },
     {
       "code": 6004,
-      "name": "alreadyFinalized",
-      "msg": "Déjà finalisé"
-    },
-    {
-      "code": 6005,
-      "name": "notBothApproved",
-      "msg": "Pas validé par les deux"
-    },
-    {
-      "code": 6006,
-      "name": "alreadyVoted",
-      "msg": "Déjà voté"
-    },
-    {
-      "code": 6007,
-      "name": "notEnoughVotes",
-      "msg": "Votes insuffisants"
-    },
-    {
-      "code": 6008,
-      "name": "voteNotForWorker",
-      "msg": "Le vote ne favorise pas le worker"
-    },
-    {
-      "code": 6009,
-      "name": "voteNotForEmployer",
-      "msg": "Le vote ne favorise pas l'employer"
-    },
-    {
-      "code": 6010,
-      "name": "badMint",
-      "msg": "Mint invalide"
-    },
-    {
-      "code": 6011,
-      "name": "badOwner",
-      "msg": "Owner invalide"
-    },
-    {
-      "code": 6012,
-      "name": "mathError",
-      "msg": "Erreur de calcul"
-    },
-    {
-      "code": 6013,
-      "name": "refundNotAllowed",
-      "msg": "Refund interdit (pas d'annulation)"
+      "name": "invalidAdminFeeAccount",
+      "msg": "Admin fee account invalide"
     }
   ],
   "types": [
@@ -765,12 +201,7 @@ export type EscrowProgram = {
           },
           {
             "name": "contractId",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            "type": "u64"
           },
           {
             "name": "admin1",
@@ -795,10 +226,6 @@ export type EscrowProgram = {
           {
             "name": "feeBps",
             "type": "u16"
-          },
-          {
-            "name": "feeWallet",
-            "type": "pubkey"
           },
           {
             "name": "status",
@@ -845,16 +272,15 @@ export type EscrowProgram = {
           {
             "name": "bump",
             "type": "u8"
-          },
-          {
-            "name": "vaultBump",
-            "type": "u8"
           }
         ]
       }
     },
     {
       "name": "escrowStatus",
+      "repr": {
+        "kind": "rust"
+      },
       "type": {
         "kind": "enum",
         "variants": [

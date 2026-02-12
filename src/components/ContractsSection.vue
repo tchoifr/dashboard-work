@@ -10,18 +10,32 @@ const emit = defineEmits(['create-contract', 'view-contract'])
 const openContract = () => emit('create-contract')
 
 const contractTitle = (contract) =>
-  contract.title || contract.name || 'Contract'
+  contract.title || contract.name || contract.jobTitle || contract.job_title || `Contract ${contract.uuid || ''}`.trim()
 const contractClient = (contract) =>
-  contract.client || contract.employerLabel || contract.employerName || ''
+  contract.client ||
+  contract.employerLabel ||
+  contract.employerName ||
+  contract.freelancer?.username ||
+  contract.freelancer?.walletAddress ||
+  contract.freelancer?.wallet_address ||
+  contract.employer?.username ||
+  ''
 const contractAmount = (contract) => {
-  const amount = contract.amountUsdc ?? contract.amount
+  const amount =
+    contract.amountUsdc ??
+    contract.amount_usdc ??
+    contract.amountTotalUsdc ??
+    contract.amount_total_usdc ??
+    contract.amounts?.totalUsdc ??
+    contract.amounts?.total_usdc ??
+    contract.amount
   if (amount == null || Number.isNaN(Number(amount))) return ''
   return `${Number(amount).toFixed(2)} USDC`
 }
 const contractPeriod = (contract) => {
   if (contract.period) return contract.period
-  const start = contract.startAt || contract.start_at || contract.timeline?.start
-  const end = contract.endAt || contract.end_at || contract.timeline?.end
+  const start = contract.startAt || contract.start_at || contract.starts_at || contract.timeline?.start
+  const end = contract.endAt || contract.end_at || contract.ends_at || contract.timeline?.end
   if (!start && !end) return ''
   return `${start || "?"} -> ${end || "?"}`
 }
