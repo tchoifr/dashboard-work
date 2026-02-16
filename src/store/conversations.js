@@ -5,6 +5,7 @@ import {
   createPrivateConversation as createPrivateConversationApi,
   listConversations,
   getConversationMessages,
+  deleteConversation as deleteConversationApi,
 } from "../services/conversationsApi"
 import { createMessage, deleteMessage as deleteMessageApi } from "../services/messagesApi"
 import { useAuthStore } from "./auth"
@@ -159,21 +160,84 @@ export const useConversationStore = defineStore("conversations", {
     },
 
     async createPrivateConversation(friendUuid) {
+      return this.openOrCreatePrivateConversation(friendUuid)
+    },
+
+    findConversationWithUser(friendUuid) {
+      const target = normalizeId(friendUuid)
+      if (!target) return null
+
+      const auth = useAuthStore()
+      const me = normalizeId(this.myUuid || auth.userUuid)
+
+      return (
+        this.conversations.find((c) => {
+          const parts = Array.isArray(c.participants) ? c.participants : []
+          const hasTarget = parts.some((p) => normalizeId(p?.uuid) === target)
+          if (!hasTarget) return false
+          if (parts.length <= 2) return true
+          return !!me && parts.some((p) => normalizeId(p?.uuid) === me)
+        }) || null
+      )
+    },
+
+    async openOrCreatePrivateConversation(friendUuid) {
       const auth = useAuthStore()
       if (!auth.token) return
 
+      const target = normalizeId(friendUuid)
+      if (!target) return
+
       try {
-        const data = await createPrivateConversationApi(friendUuid)
+        // 1) Ouvre l'existante si déjà présente localement
+        let existing = this.findConversationWithUser(target)
+        if (existing) {
+          await this.selectConversation(existing.id)
+          return existing
+        }
+
+        // 2) Sinon refresh liste serveur et reteste
+        if (!this.conversations.length) {
+          await this.fetchConversations()
+          existing = this.findConversationWithUser(target)
+          if (existing) {
+            await this.selectConversation(existing.id)
+            return existing
+          }
+        }
+
+        // 3) Crée si aucune existante
+        const data = await createPrivateConversationApi(target)
         const id = normalizeId(data?.id)
         if (!id) throw new Error("Conversation id manquant")
 
-        const exists = this.conversations.some((c) => normalizeId(c.id) === id)
-        if (!exists) this.conversations.unshift(data)
+        const byId = this.conversations.some((c) => normalizeId(c.id) === id)
+        if (!byId) this.conversations.unshift(data)
 
         await this.selectConversation(id)
+        return data
       } catch (e) {
-        console.error("createPrivateConversation failed", e?.response?.status, e?.response?.data || e)
+        // 4) Si déjà existante côté backend (409), on recharge et on ouvre
+        if (e?.response?.status === 409) {
+          try {
+            await this.fetchConversations()
+            const existing = this.findConversationWithUser(target)
+            if (existing) {
+              await this.selectConversation(existing.id)
+              return existing
+            }
+          } catch (refreshError) {
+            console.error(
+              "openOrCreatePrivateConversation refresh failed",
+              refreshError?.response?.status,
+              refreshError?.response?.data || refreshError,
+            )
+          }
+        }
+
+        console.error("openOrCreatePrivateConversation failed", e?.response?.status, e?.response?.data || e)
         alert("Impossible d’ouvrir la conversation")
+        return null
       }
     },
 
@@ -314,6 +378,22 @@ export const useConversationStore = defineStore("conversations", {
       this.conversations = this.conversations.filter((c) => normalizeId(c.id) !== id)
       delete this.messagesByConversation[id]
       if (normalizeId(this.activeConversationId) === id) this.activeConversationId = null
+    },
+
+    async deleteConversation(conversationId) {
+      const auth = useAuthStore()
+      if (!auth.token) return
+
+      const id = normalizeId(conversationId)
+      if (!id) return
+
+      try {
+        await deleteConversationApi(id)
+        this.deleteConversationLocal(id)
+      } catch (e) {
+        console.error("deleteConversation failed", e?.response?.status, e?.response?.data || e)
+        alert("Impossible de supprimer la conversation")
+      }
     },
 
     reset() {

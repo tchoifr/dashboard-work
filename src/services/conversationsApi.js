@@ -7,3 +7,6 @@ export const listConversations = () => http.get("/api/conversations").then((r) =
 
 export const getConversationMessages = (id) =>
   http.get(`/api/conversations/${id}/messages`).then((r) => r.data)
+
+export const deleteConversation = (id) =>
+  http.delete(`/api/conversations/${id}`).then((r) => r.data)

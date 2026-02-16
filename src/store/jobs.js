@@ -10,6 +10,10 @@ import {
   withdrawJob as withdrawJobApi,
   applyToJob as applyToJobApi,
   listJobApplications,
+  listReceivedApplications,
+  manageJobApplication,
+  addApplicantAsFriend,
+  deleteJobApplication,
 } from "../services/jobsApi"
 import { useAuthStore } from "./auth"
 
@@ -28,8 +32,12 @@ const normalizeJob = (job) => {
   const applicantsCount =
     typeof job.applicantsCount === "number"
       ? job.applicantsCount
+      : typeof job.applicationsCount === "number"
+        ? job.applicationsCount
       : Array.isArray(job.applicants)
         ? job.applicants.length
+        : Array.isArray(job.applications)
+          ? job.applications.length
         : 0
 
   return {
@@ -51,7 +59,137 @@ const normalizeJob = (job) => {
     postedLabel: toIsoLabel(job.publishedAt || job.createdAt),
     isPublic: job.status === "published",
     applicantsCount,
+    ownerId: job.ownerId || job.owner?.uuid || null,
   }
+}
+
+const asArray = (v) => (Array.isArray(v) ? v : [])
+const defaultReceivedApplicationsState = () => ({
+  loading: false,
+  error: null,
+  items: [],
+  total: 0,
+  status: null,
+})
+
+const normalizeReceivedApplication = (item) => {
+  if (!item) return null
+
+  const applicant = item.applicant || {}
+  const profile = applicant.profile || {}
+
+  return {
+    id: item.id,
+    status: item.status || "applied",
+    createdAt: item.createdAt || null,
+    appliedAtLabel: toIsoLabel(item.createdAt),
+    job: {
+      id: item.job?.id,
+      title: item.job?.title || "",
+      companyName: item.job?.companyName || "",
+    },
+    applicant: {
+      uuid: applicant.uuid || null,
+      username: applicant.username || "",
+      walletAddress: applicant.walletAddress || "",
+      title: applicant.title || profile.title || "",
+      location: applicant.location || profile.location || "",
+      availability: applicant.availability || profile.availability || "",
+      rateHourlyUsd: applicant.rateHourlyUsd ?? null,
+      rate: profile.rate ?? null,
+      bio: applicant.bio || profile.bio || "",
+      skills: asArray(applicant.skills).length ? asArray(applicant.skills) : asArray(profile.skills),
+      highlights: asArray(applicant.highlights).length
+        ? asArray(applicant.highlights)
+        : asArray(profile.highlights),
+      portfolio: asArray(applicant.portfolio).length
+        ? asArray(applicant.portfolio)
+        : asArray(profile.portfolio),
+      profile,
+    },
+  }
+}
+
+const normalizeJobApplicant = (item) => {
+  if (!item) return null
+
+  const appId = item.id ?? item.applicationId ?? null
+  const applicant = item.applicant || {}
+
+  return {
+    ...item,
+    id: appId,
+    applicationId: appId,
+    userId: item.userId || applicant.uuid || item.uuid || null,
+    username: item.username || applicant.username || item.name || "",
+    walletAddress: item.walletAddress || applicant.walletAddress || "",
+    title: item.title || applicant.title || "",
+    location: item.location || applicant.location || "",
+    availability: item.availability || applicant.availability || "",
+    rateHourlyUsd: item.rateHourlyUsd ?? applicant.rateHourlyUsd ?? null,
+    bio: item.bio || applicant.bio || "",
+    skills: asArray(item.skills).length ? asArray(item.skills) : asArray(applicant.skills),
+    highlights: asArray(item.highlights).length ? asArray(item.highlights) : asArray(applicant.highlights),
+    portfolio: asArray(item.portfolio).length ? asArray(item.portfolio) : asArray(applicant.portfolio),
+    profile: item.profile || applicant.profile || null,
+  }
+}
+
+const enrichApplicantsFromReceived = (applicants, receivedItems, jobId) => {
+  const byId = new Map()
+  const byUuid = new Map()
+
+  for (const rec of receivedItems || []) {
+    if (Number(rec?.job?.id) !== Number(jobId)) continue
+    if (rec?.id != null) byId.set(String(rec.id), rec)
+    if (rec?.applicant?.uuid) byUuid.set(String(rec.applicant.uuid), rec)
+  }
+
+  return (applicants || []).map((raw) => {
+    const item = normalizeJobApplicant(raw)
+    if (!item) return raw
+
+    const recById = item.id != null ? byId.get(String(item.id)) : null
+    const recByUuid = item.userId ? byUuid.get(String(item.userId)) : null
+    const rec = recById || recByUuid
+    if (!rec) return item
+
+    return {
+      ...item,
+      id: item.id ?? rec.id,
+      applicationId: item.applicationId ?? rec.id,
+      status: item.status || rec.status,
+      createdAt: item.createdAt || rec.createdAt,
+      userId: item.userId || rec.applicant?.uuid || null,
+      username: item.username || rec.applicant?.username || "",
+      title: item.title || rec.applicant?.title || rec.applicant?.profile?.title || "",
+      location: item.location || rec.applicant?.location || rec.applicant?.profile?.location || "",
+      availability:
+        item.availability || rec.applicant?.availability || rec.applicant?.profile?.availability || "",
+      rateHourlyUsd: item.rateHourlyUsd ?? rec.applicant?.rateHourlyUsd ?? null,
+      bio: item.bio || rec.applicant?.bio || rec.applicant?.profile?.bio || "",
+      skills: asArray(item.skills).length
+        ? asArray(item.skills)
+        : asArray(rec.applicant?.skills).length
+          ? asArray(rec.applicant?.skills)
+          : asArray(rec.applicant?.profile?.skills),
+      highlights: asArray(item.highlights).length
+        ? asArray(item.highlights)
+        : asArray(rec.applicant?.highlights).length
+          ? asArray(rec.applicant?.highlights)
+          : asArray(rec.applicant?.profile?.highlights),
+      portfolio: asArray(item.portfolio).length
+        ? asArray(item.portfolio)
+        : asArray(rec.applicant?.portfolio).length
+          ? asArray(rec.applicant?.portfolio)
+          : asArray(rec.applicant?.profile?.portfolio),
+      profile: item.profile || rec.applicant?.profile || null,
+      applicant: {
+        ...(item.applicant || {}),
+        ...(rec.applicant || {}),
+      },
+    }
+  })
 }
 
 export const useJobsStore = defineStore("jobs", {
@@ -64,6 +202,8 @@ export const useJobsStore = defineStore("jobs", {
     loadingJobs: false,
 
     applicantsByJobId: {},
+
+    receivedApplications: defaultReceivedApplicationsState(),
 
     saving: false,
     error: null,
@@ -80,6 +220,7 @@ export const useJobsStore = defineStore("jobs", {
       this.jobs = []
       this.jobsMeta = { page: 1, limit: 20, total: 0, sort: "recent", q: "" }
       this.applicantsByJobId = {}
+      this.receivedApplications = defaultReceivedApplicationsState()
       this.loadingMine = false
       this.loadingJobs = false
       this.saving = false
@@ -324,15 +465,148 @@ export const useJobsStore = defineStore("jobs", {
 
       try {
         const data = await listJobApplications(jobId)
+        const baseItems = Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : []
+        let items = baseItems.map(normalizeJobApplicant).filter(Boolean)
+
+        // Enrichit avec le endpoint owner qui contient applicant.profile complet
+        try {
+          const received = await listReceivedApplications()
+          const receivedItems = Array.isArray(received?.items)
+            ? received.items.map(normalizeReceivedApplication).filter(Boolean)
+            : []
+          items = enrichApplicantsFromReceived(items, receivedItems, jobId)
+        } catch {
+          // On garde la liste minimale si l’enrichissement échoue
+        }
+
         this.applicantsByJobId[jobId] = {
           loading: false,
           error: null,
-          items: Array.isArray(data) ? data : [],
+          items,
         }
       } catch (e) {
         const msg = e?.response?.data?.message || e.message || "Failed to load applicants"
         this.applicantsByJobId[jobId] = { loading: false, error: msg, items: [] }
         throw e
+      }
+    },
+
+    async fetchReceivedApplications(status = null) {
+      const auth = useAuthStore()
+      if (!auth.token) return
+
+      if (!this.receivedApplications) {
+        this.receivedApplications = defaultReceivedApplicationsState()
+      }
+
+      this.receivedApplications = {
+        ...this.receivedApplications,
+        loading: true,
+        error: null,
+        status,
+      }
+
+      try {
+        const data = await listReceivedApplications(status ? { status } : {})
+        const rawItems = Array.isArray(data?.items) ? data.items : []
+        const items = rawItems.map(normalizeReceivedApplication).filter(Boolean)
+
+        this.receivedApplications = {
+          loading: false,
+          error: null,
+          items,
+          total: Number.isFinite(data?.total) ? data.total : items.length,
+          status,
+        }
+      } catch (e) {
+        const msg = e?.response?.data?.message || e.message || "Failed to load received applications"
+        this.receivedApplications = {
+          ...this.receivedApplications,
+          loading: false,
+          error: msg,
+          items: [],
+          total: 0,
+          status,
+        }
+        throw e
+      }
+    },
+
+    async manageReceivedApplication(jobId, applicationId, status) {
+      const auth = useAuthStore()
+      if (!auth.token) return
+
+      if (!this.receivedApplications) {
+        this.receivedApplications = defaultReceivedApplicationsState()
+      }
+
+      this.saving = true
+      try {
+        const updated = await manageJobApplication(jobId, applicationId, status)
+        const targetId = updated?.id ?? applicationId
+
+        this.receivedApplications = {
+          ...this.receivedApplications,
+          items: this.receivedApplications.items.map((item) =>
+            item.id === targetId ? { ...item, status: updated?.status || status } : item,
+          ),
+        }
+
+        return updated
+      } finally {
+        this.saving = false
+      }
+    },
+
+    async addReceivedApplicantAsFriend(jobId, applicationId) {
+      const auth = useAuthStore()
+      if (!auth.token) return null
+
+      return addApplicantAsFriend(jobId, applicationId)
+    },
+
+    async manageJobApplicant(jobId, applicationId, status, options = {}) {
+      const auth = useAuthStore()
+      if (!auth.token) return
+
+      this.saving = true
+      try {
+        const updated = await manageJobApplication(jobId, applicationId, status)
+        const targetId = updated?.id ?? applicationId
+        const state = this.applicantsByJobId[jobId] || { loading: false, error: null, items: [] }
+
+        const nextItems = (state.items || [])
+          .map((item) => {
+            const itemId = item?.id ?? item?.applicationId
+            return itemId === targetId ? { ...item, status: updated?.status || status } : item
+          })
+          .filter((item) => !(options?.removeRejected && String(item?.status || "").toLowerCase() === "rejected"))
+
+        this.applicantsByJobId[jobId] = { ...state, items: nextItems }
+
+        return updated
+      } finally {
+        this.saving = false
+      }
+    },
+
+    async deleteJobApplicant(jobId, applicationId) {
+      const auth = useAuthStore()
+      if (!auth.token) return
+
+      this.saving = true
+      try {
+        await deleteJobApplication(jobId, applicationId)
+        const state = this.applicantsByJobId[jobId] || { loading: false, error: null, items: [] }
+        this.applicantsByJobId[jobId] = {
+          ...state,
+          items: (state.items || []).filter((item) => {
+            const itemId = item?.id ?? item?.applicationId
+            return itemId !== applicationId
+          }),
+        }
+      } finally {
+        this.saving = false
       }
     },
   },

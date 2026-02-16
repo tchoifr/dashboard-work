@@ -22,3 +22,17 @@ export const applyToJob = (id) => http.post(`/api/jobs/${id}/apply`).then((r) =>
 
 export const listJobApplications = (id) =>
   http.get(`/api/jobs/${id}/applications`).then((r) => r.data)
+
+export const listReceivedApplications = (params = {}) =>
+  http.get("/api/me/applications/received", { params }).then((r) => r.data)
+
+export const manageJobApplication = (jobId, applicationId, status) =>
+  http
+    .patch(`/api/jobs/${jobId}/applications/${applicationId}`, { status })
+    .then((r) => r.data)
+
+export const addApplicantAsFriend = (jobId, applicationId) =>
+  http.post(`/api/jobs/${jobId}/applications/${applicationId}/friend`).then((r) => r.data)
+
+export const deleteJobApplication = (jobId, applicationId) =>
+  http.delete(`/api/jobs/${jobId}/applications/${applicationId}`).then((r) => r.data)

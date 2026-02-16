@@ -6,6 +6,9 @@ const jobsStore = useJobsStore()
 
 const showForm = ref(false)
 const showApplicantsFor = ref(null) // jobId
+const showReceivedModal = ref(false)
+const receivedStatusFilter = ref("")
+const selectedApplicantKey = ref("")
 
 const form = reactive({
   title: "",
@@ -107,6 +110,7 @@ const onDelete = async (job) => {
 
 const openApplicants = async (job) => {
   showApplicantsFor.value = job.id
+  selectedApplicantKey.value = ""
   try {
     await jobsStore.fetchApplicants(job.id)
   } catch {
@@ -115,6 +119,7 @@ const openApplicants = async (job) => {
 }
 const closeApplicants = () => {
   showApplicantsFor.value = null
+  selectedApplicantKey.value = ""
 }
 
 const applicantsState = computed(() => {
@@ -122,6 +127,177 @@ const applicantsState = computed(() => {
   if (!jobId) return { loading: false, error: null, items: [] }
   return jobsStore.applicantsState(jobId)
 })
+
+const emit = defineEmits(["open-applicant-chat"])
+
+const receivedState = computed(
+  () =>
+    jobsStore.receivedApplications || {
+      loading: false,
+      error: null,
+      items: [],
+      total: 0,
+      status: null,
+    },
+)
+
+const statusPillClass = (status) => {
+  const s = String(status || "").toLowerCase()
+  if (s === "accepted") return "badge status-accepted"
+  if (s === "rejected") return "badge status-rejected"
+  return "badge status-applied"
+}
+
+const toProfileList = (value) => (Array.isArray(value) ? value.filter(Boolean) : [])
+
+const openReceivedApplications = async () => {
+  showReceivedModal.value = true
+  try {
+    await jobsStore.fetchReceivedApplications(receivedStatusFilter.value || null)
+  } catch {
+    // handled in store state
+  }
+}
+
+const closeReceivedApplications = () => {
+  showReceivedModal.value = false
+}
+
+const refreshReceivedApplications = async () => {
+  await jobsStore.fetchReceivedApplications(receivedStatusFilter.value || null)
+}
+
+const onChangeReceivedStatusFilter = async (event) => {
+  receivedStatusFilter.value = event.target.value
+  await refreshReceivedApplications()
+}
+
+const onManageApplication = async (app, status) => {
+  try {
+    await jobsStore.manageReceivedApplication(app.job.id, app.id, status)
+  } catch (e) {
+    alert(e?.response?.data?.message || e.message || "Update application failed")
+  }
+}
+
+const onContactApplicant = async (app) => {
+  const applicantUuid = app?.applicant?.uuid
+  if (!applicantUuid) {
+    alert("Candidat invalide: uuid manquant.")
+    return
+  }
+
+  try {
+    await jobsStore.addReceivedApplicantAsFriend(app.job.id, app.id)
+  } catch (e) {
+    const msg = e?.response?.data?.message || e.message || ""
+    if (msg.toLowerCase().includes("blocked")) {
+      alert("Impossible de contacter ce candidat: relation bloquée.")
+      return
+    }
+    console.warn("add friend warning:", msg)
+  }
+
+  emit("open-applicant-chat", applicantUuid)
+}
+
+const getApplicationId = (app) => app?.id ?? app?.applicationId ?? null
+const getApplicationKey = (app, idx = 0) =>
+  String(getApplicationId(app) ?? `${showApplicantsFor.value || "job"}_${idx}`)
+const getApplicantName = (app) =>
+  app?.username || app?.applicant?.username || app?.name || app?.applicant?.name || "Unknown applicant"
+const getApplicantUuid = (app) => app?.userId || app?.applicant?.uuid || app?.uuid || null
+const getApplicationDate = (app) => app?.createdAt || app?.appliedAt || null
+const getApplicantTitle = (app) => app?.title || app?.applicant?.title || app?.profile?.title || app?.applicant?.profile?.title || ""
+const getApplicantLocation = (app) =>
+  app?.location || app?.applicant?.location || app?.profile?.location || app?.applicant?.profile?.location || ""
+const getApplicantAvailability = (app) =>
+  app?.availability ||
+  app?.applicant?.availability ||
+  app?.profile?.availability ||
+  app?.applicant?.profile?.availability ||
+  ""
+const getApplicantRate = (app) => {
+  const direct = app?.rateHourlyUsd ?? app?.applicant?.rateHourlyUsd
+  if (direct != null && direct !== "") return `${direct} USD/h`
+  const profileRate = app?.profile?.rate ?? app?.applicant?.profile?.rate ?? ""
+  return profileRate || ""
+}
+const getApplicantBio = (app) => app?.bio || app?.applicant?.bio || app?.profile?.bio || app?.applicant?.profile?.bio || ""
+const getApplicantSkills = (app) => {
+  const direct = app?.skills || app?.applicant?.skills
+  if (Array.isArray(direct) && direct.length) return direct
+  const prof = app?.profile?.skills || app?.applicant?.profile?.skills
+  return Array.isArray(prof) ? prof : []
+}
+const getApplicantHighlights = (app) => {
+  const direct = app?.highlights || app?.applicant?.highlights
+  if (Array.isArray(direct) && direct.length) return direct
+  const prof = app?.profile?.highlights || app?.applicant?.profile?.highlights
+  return Array.isArray(prof) ? prof : []
+}
+const getApplicantPortfolio = (app) => {
+  const direct = app?.portfolio || app?.applicant?.portfolio
+  if (Array.isArray(direct) && direct.length) return direct
+  const prof = app?.profile?.portfolio || app?.applicant?.profile?.portfolio
+  return Array.isArray(prof) ? prof : []
+}
+
+const onSelectApplicant = (app, idx = 0) => {
+  selectedApplicantKey.value = getApplicationKey(app, idx)
+}
+
+const selectedApplicant = computed(() => {
+  const items = applicantsState.value?.items || []
+  return items.find((item, idx) => getApplicationKey(item, idx) === selectedApplicantKey.value) || null
+})
+
+const applicationStatusClass = (status) => {
+  const s = String(status || "").toLowerCase()
+  if (s === "accepted") return "status-accepted"
+  if (s === "rejected") return "status-rejected"
+  return "status-applied"
+}
+
+const onContactApplicantFromJob = async (job, app) => {
+  const applicantUuid = getApplicantUuid(app)
+  const applicationId = getApplicationId(app)
+  if (!applicationId) {
+    alert("Application id manquant.")
+    return
+  }
+  if (!applicantUuid) {
+    alert("uuid candidat manquant.")
+    return
+  }
+
+  try {
+    await jobsStore.addReceivedApplicantAsFriend(job.id, applicationId)
+  } catch (e) {
+    const msg = e?.response?.data?.message || e.message || ""
+    if (msg.toLowerCase().includes("blocked")) {
+      alert("Impossible de contacter ce candidat: relation bloquée.")
+      return
+    }
+  }
+
+  emit("open-applicant-chat", applicantUuid)
+}
+
+const onDeleteApplicationFromJob = async (job, app) => {
+  const applicationId = getApplicationId(app)
+  if (!applicationId) {
+    alert("Application id manquant.")
+    return
+  }
+
+  if (!confirm("Supprimer cette candidature ?")) return
+  try {
+    await jobsStore.deleteJobApplicant(job.id, applicationId)
+  } catch (e) {
+    alert(e?.response?.data?.message || e.message || "Suppression impossible")
+  }
+}
 </script>
 
 <template>
@@ -136,6 +312,10 @@ const applicantsState = computed(() => {
       <button class="primary-btn" type="button" @click="openForm">
         <span class="plus">+</span>
         Create Job
+      </button>
+      <button class="ghost-btn" type="button" @click="openReceivedApplications">
+        Applications received
+        <span v-if="receivedState.total > 0">({{ receivedState.total }})</span>
       </button>
     </div>
 
@@ -333,17 +513,229 @@ const applicantsState = computed(() => {
           <p v-else-if="applicantsState.error" class="error">{{ applicantsState.error }}</p>
 
           <div v-else-if="applicantsState.items.length">
-            <article v-for="a in applicantsState.items" :key="a.userId" class="applicant">
-              <div class="row">
-                <strong>{{ a.username || a.walletAddress || a.userId }}</strong>
-                <span class="badge">{{ a.status }}</span>
+            <div class="applicants-layout">
+              <div class="applicants-summary-list">
+                <button
+                  v-for="(a, idx) in applicantsState.items"
+                  :key="getApplicationKey(a, idx)"
+                  type="button"
+                  :class="['applicant-summary', { active: getApplicationKey(a, idx) === selectedApplicantKey }]"
+                  @click="onSelectApplicant(a, idx)"
+                >
+                  <div class="summary-icon">⚡</div>
+                  <div class="summary-main">
+                    <div class="summary-top-row">
+                      <strong class="summary-name">{{ getApplicantName(a) }}</strong>
+                      <span :class="['summary-status', applicationStatusClass(a.status)]">{{ a.status || "applied" }}</span>
+                    </div>
+                    <p class="muted small">{{ getApplicantTitle(a) || "No title" }}</p>
+                    <p class="muted small">{{ getApplicantLocation(a) || "Unknown location" }}</p>
+                    <p v-if="getApplicantAvailability(a)" class="muted small">Availability: {{ getApplicantAvailability(a) }}</p>
+                    <p v-if="getApplicantRate(a)" class="muted small">Rate: {{ getApplicantRate(a) }}</p>
+                    <p class="muted small">Applied: {{ getApplicationDate(a) ? new Date(getApplicationDate(a)).toLocaleString() : "—" }}</p>
+                    <span class="summary-accent" aria-hidden="true"></span>
+                  </div>
+                </button>
               </div>
-              <p class="muted small">{{ a.walletAddress }}</p>
-              <p class="muted small">Applied: {{ new Date(a.createdAt).toLocaleString() }}</p>
-            </article>
+
+              <div v-if="selectedApplicant" class="applicant-details-panel">
+                <div class="row">
+                  <strong>{{ getApplicantName(selectedApplicant) }}</strong>
+                  <div class="detail-head-actions">
+                    <button
+                      class="close-detail-btn"
+                      type="button"
+                      title="Fermer le profil"
+                      aria-label="Fermer le profil"
+                      @click="selectedApplicantKey = ''"
+                    >
+                      ×
+                    </button>
+                  </div>
+                </div>
+
+                <p class="muted small">{{ getApplicantTitle(selectedApplicant) || "No title" }}</p>
+                <p class="muted small">{{ getApplicantLocation(selectedApplicant) || "Unknown location" }}</p>
+                <p v-if="getApplicantAvailability(selectedApplicant)" class="muted small">
+                  Availability: {{ getApplicantAvailability(selectedApplicant) }}
+                </p>
+                <p v-if="getApplicantRate(selectedApplicant)" class="muted small">
+                  Rate: {{ getApplicantRate(selectedApplicant) }}
+                </p>
+                <p class="muted small">
+                  Applied:
+                  {{ getApplicationDate(selectedApplicant) ? new Date(getApplicationDate(selectedApplicant)).toLocaleString() : "—" }}
+                </p>
+
+                <p v-if="getApplicantBio(selectedApplicant)" class="candidate-note">{{ getApplicantBio(selectedApplicant) }}</p>
+
+                <div v-if="getApplicantSkills(selectedApplicant).length" class="summary-section">
+                  <strong>Skills</strong>
+                  <div class="summary-top">
+                    <span
+                      v-for="skill in getApplicantSkills(selectedApplicant)"
+                      :key="`${getApplicationId(selectedApplicant)}_${skill}`"
+                      class="chip"
+                    >
+                      {{ skill }}
+                    </span>
+                  </div>
+                </div>
+
+                <div v-if="getApplicantHighlights(selectedApplicant).length" class="summary-section">
+                  <strong>Highlights</strong>
+                  <ul class="summary-list">
+                    <li
+                      v-for="(h, hIdx) in getApplicantHighlights(selectedApplicant)"
+                      :key="`${getApplicationId(selectedApplicant)}_h_${hIdx}`"
+                    >
+                      {{ h }}
+                    </li>
+                  </ul>
+                </div>
+
+                <div v-if="getApplicantPortfolio(selectedApplicant).length" class="summary-section">
+                  <strong>Portfolio</strong>
+                  <ul class="summary-list">
+                    <li
+                      v-for="(p, pIdx) in getApplicantPortfolio(selectedApplicant)"
+                      :key="`${getApplicationId(selectedApplicant)}_p_${pIdx}`"
+                    >
+                      {{ p?.title || p?.name || p?.url || p }}
+                    </li>
+                  </ul>
+                </div>
+
+                <div class="detail-actions">
+                  <button
+                    class="ghost-btn compact view-btn"
+                    type="button"
+                    @click="onContactApplicantFromJob({ id: showApplicantsFor }, selectedApplicant)"
+                  >
+                    Contact
+                  </button>
+                  <button
+                    class="danger-btn compact"
+                    type="button"
+                    :disabled="saving"
+                    @click="onDeleteApplicationFromJob({ id: showApplicantsFor }, selectedApplicant)"
+                  >
+                    Delete application
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
 
           <p v-else class="muted">No applicants yet.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal Received Applications -->
+    <div v-if="showReceivedModal" class="modal" @click.self="closeReceivedApplications">
+      <div class="modal-card modal-wide">
+        <header class="modal-head">
+          <div>
+            <p class="eyebrow">Received applications</p>
+            <h3>Candidatures sur toutes vos annonces</h3>
+            <p class="muted">Voir le profil et lancer une conversation.</p>
+          </div>
+          <button class="close-btn" type="button" @click="closeReceivedApplications">×</button>
+        </header>
+
+        <div class="toolbar">
+          <label class="field filter">
+            <span>Status</span>
+            <select :value="receivedStatusFilter" @change="onChangeReceivedStatusFilter">
+              <option value="">All</option>
+              <option value="applied">Applied</option>
+              <option value="accepted">Accepted</option>
+              <option value="rejected">Rejected</option>
+            </select>
+          </label>
+          <button class="ghost-btn" type="button" :disabled="receivedState.loading" @click="refreshReceivedApplications">
+            Refresh
+          </button>
+        </div>
+
+        <div class="modal-body">
+          <p v-if="receivedState.loading" class="muted">Loading received applications...</p>
+          <p v-else-if="receivedState.error" class="error">{{ receivedState.error }}</p>
+
+          <div v-else-if="receivedState.items.length" class="received-list">
+            <article v-for="app in receivedState.items" :key="app.id" class="received-card">
+              <div class="row">
+                <div>
+                  <strong>{{ app.job.title || "Untitled job" }}</strong>
+                  <p class="muted small">{{ app.job.companyName || "Unknown company" }}</p>
+                </div>
+                <span :class="statusPillClass(app.status)">{{ app.status }}</span>
+              </div>
+
+              <div class="row top-space">
+                <div>
+                  <p class="applicant-name">{{ app.applicant.username || app.applicant.walletAddress || "Unknown" }}</p>
+                  <p class="muted small">{{ app.applicant.title || "No title" }}</p>
+                  <p class="muted small">{{ app.applicant.location || "Unknown location" }}</p>
+                </div>
+                <p class="muted small">Applied: {{ app.appliedAtLabel || "—" }}</p>
+              </div>
+
+              <p v-if="app.applicant.bio" class="candidate-note">{{ app.applicant.bio }}</p>
+
+              <div v-if="toProfileList(app.applicant.skills).length" class="summary-section">
+                <strong>Skills</strong>
+                <div class="summary-top">
+                  <span v-for="skill in toProfileList(app.applicant.skills)" :key="`${app.id}_${skill}`" class="chip">
+                    {{ skill }}
+                  </span>
+                </div>
+              </div>
+
+              <div v-if="toProfileList(app.applicant.highlights).length" class="summary-section">
+                <strong>Highlights</strong>
+                <ul class="summary-list">
+                  <li v-for="(h, idx) in toProfileList(app.applicant.highlights)" :key="`${app.id}_h_${idx}`">
+                    {{ h }}
+                  </li>
+                </ul>
+              </div>
+
+              <div v-if="toProfileList(app.applicant.portfolio).length" class="summary-section">
+                <strong>Portfolio</strong>
+                <ul class="summary-list">
+                  <li v-for="(p, idx) in toProfileList(app.applicant.portfolio)" :key="`${app.id}_p_${idx}`">
+                    {{ p?.title || p?.name || p?.url || p }}
+                  </li>
+                </ul>
+              </div>
+
+              <div class="detail-actions">
+                <button
+                  class="primary-btn compact"
+                  type="button"
+                  :disabled="saving || app.status === 'accepted'"
+                  @click="onManageApplication(app, 'accepted')"
+                >
+                  Accept
+                </button>
+                <button
+                  class="danger-btn compact"
+                  type="button"
+                  :disabled="saving || app.status === 'rejected'"
+                  @click="onManageApplication(app, 'rejected')"
+                >
+                  Reject
+                </button>
+                <button class="ghost-btn compact view-btn" type="button" :disabled="saving" @click="onContactApplicant(app)">
+                  Contact
+                </button>
+              </div>
+            </article>
+          </div>
+
+          <p v-else class="muted">No received applications.</p>
         </div>
       </div>
     </div>
@@ -366,6 +758,144 @@ const applicantsState = computed(() => {
 .small { font-size: 12px; }
 .applicant { padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.08); }
 .row { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
+.applicants-layout {
+  display: grid;
+  gap: 12px;
+}
+
+.applicants-summary-list {
+  display: grid;
+  gap: 10px;
+  max-height: 260px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.applicant-summary {
+  width: 100%;
+  border: 1px solid rgba(92, 134, 255, 0.35);
+  border-radius: 18px;
+  background: linear-gradient(165deg, rgba(9, 14, 32, 0.95), rgba(10, 18, 36, 0.95));
+  padding: 14px;
+  display: grid;
+  grid-template-columns: 52px 1fr;
+  gap: 12px;
+  text-align: left;
+  cursor: pointer;
+  box-shadow:
+    0 12px 24px rgba(0, 0, 0, 0.34),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+  transition: border-color 0.16s ease, transform 0.16s ease, box-shadow 0.16s ease;
+}
+
+.applicant-summary:hover {
+  border-color: rgba(92, 177, 255, 0.55);
+  transform: translateY(-1px);
+}
+
+.applicant-summary.active {
+  border-color: rgba(92, 177, 255, 0.8);
+  box-shadow:
+    0 16px 30px rgba(0, 0, 0, 0.4),
+    0 0 24px rgba(0, 153, 255, 0.24);
+}
+
+.summary-icon {
+  width: 50px;
+  height: 50px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  font-size: 24px;
+  color: #8fd6ff;
+  background: radial-gradient(circle at 30% 30%, rgba(96, 120, 255, 0.45), rgba(35, 56, 132, 0.65));
+  border: 1px solid rgba(123, 167, 255, 0.45);
+}
+
+.summary-main {
+  display: grid;
+  gap: 4px;
+}
+
+.summary-top-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.summary-name {
+  color: #eef4ff;
+  font-size: 18px;
+}
+
+.summary-status {
+  font-size: 12px;
+  font-weight: 800;
+  border-radius: 999px;
+  padding: 4px 10px;
+  border: 1px solid transparent;
+  text-transform: capitalize;
+}
+
+.summary-status.status-applied {
+  color: #d5c5ff;
+  background: rgba(120, 90, 255, 0.18);
+  border-color: rgba(120, 90, 255, 0.42);
+}
+
+.summary-status.status-accepted {
+  color: #7bd38f;
+  background: rgba(123, 211, 143, 0.18);
+  border-color: rgba(123, 211, 143, 0.45);
+}
+
+.summary-status.status-rejected {
+  color: #ff9a9a;
+  background: rgba(255, 107, 107, 0.16);
+  border-color: rgba(255, 107, 107, 0.45);
+}
+
+.summary-accent {
+  height: 3px;
+  border-radius: 99px;
+  width: 100%;
+  margin-top: 6px;
+  background: linear-gradient(90deg, #3da0ff, #00d2ff);
+  opacity: 0.95;
+}
+
+.applicant-details-panel {
+  border: 1px solid rgba(120, 90, 255, 0.28);
+  border-radius: 14px;
+  background: linear-gradient(165deg, rgba(7, 10, 24, 0.96), rgba(10, 18, 36, 0.95));
+  padding: 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.detail-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.close-detail-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  border: 1px solid rgba(120, 90, 255, 0.35);
+  background: rgba(120, 90, 255, 0.12);
+  color: #d6c7ff;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.close-detail-btn:hover {
+  border-color: rgba(120, 90, 255, 0.55);
+  background: rgba(120, 90, 255, 0.2);
+}
 .jobs {
   display: flex;
   flex-direction: column;
@@ -800,6 +1330,60 @@ h2 {
     0 0 28px rgba(120, 90, 255, 0.3);
   padding: 18px;
   color: #dfe7ff;
+}
+
+.modal-card.modal-wide {
+  width: min(860px, 100%);
+}
+
+.toolbar {
+  display: flex;
+  gap: 10px;
+  align-items: end;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.filter {
+  min-width: 200px;
+}
+
+.received-list {
+  display: grid;
+  gap: 12px;
+  max-height: 62vh;
+  overflow: auto;
+}
+
+.received-card {
+  border: 1px solid rgba(120, 90, 255, 0.24);
+  border-radius: 12px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  display: grid;
+  gap: 8px;
+}
+
+.top-space {
+  margin-top: 2px;
+}
+
+.status-applied {
+  color: #d5c5ff;
+  background: rgba(120, 90, 255, 0.18);
+  border: 1px solid rgba(120, 90, 255, 0.42);
+}
+
+.status-accepted {
+  color: #7bd38f;
+  background: rgba(123, 211, 143, 0.18);
+  border: 1px solid rgba(123, 211, 143, 0.45);
+}
+
+.status-rejected {
+  color: #ff9a9a;
+  background: rgba(255, 107, 107, 0.16);
+  border: 1px solid rgba(255, 107, 107, 0.45);
 }
 
 .modal-head {

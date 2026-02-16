@@ -3,6 +3,7 @@ import { ref, computed, onMounted, watch } from "vue"
 import { storeToRefs } from "pinia"
 import { useAuthStore } from "../store/auth"
 import { useConversationStore } from "../store/conversations"
+import { deleteConversation as deleteConversationApi } from "../services/conversationsApi"
 import { useProfileStore } from "../store/profile"
 import { useWalletConfigStore } from "../store/walletConfig"
 import { useContractsStore } from "../store/contracts"
@@ -14,7 +15,7 @@ import { getUsdcBalance } from "../solana/usdc"
 import OverviewSection from "./OverviewSection.vue"
 import ContractsSection from "./ContractsSection.vue"
 import JobsSection from "./JobsSection.vue"
-import RechargerJobsSection from "./RechargerJobsSection.vue"
+import SearchJobsSection from "./SearchJobsSection.vue"
 import MessagesSection from "./MessagesSection.vue"
 import ProfileSection from "./ProfileSection.vue"
 import DaoDisputesSection from "./DaoDisputesSection.vue"
@@ -361,7 +362,13 @@ async function handleSendMessage(body) {
 async function handleStartFriendChat(friendId) {
   if (!friendId) return
   try {
+    if (typeof conversationStore.openOrCreatePrivateConversation === "function") {
+      await conversationStore.openOrCreatePrivateConversation(friendId)
+      activeTab.value = "Messages"
+      return
+    }
     await conversationStore.createPrivateConversation(friendId)
+    activeTab.value = "Messages"
   } catch (error) {
     console.error(error)
     alert("Impossible d'ouvrir la conversation.")
@@ -374,6 +381,26 @@ async function handleDeleteMessage(messageId) {
   } catch (error) {
     console.error(error)
     alert("Suppression impossible.")
+  }
+}
+
+async function handleDeleteConversation(conversationId) {
+  if (!conversationId) return
+  if (!confirm("Supprimer cette conversation ?")) return
+  try {
+    if (typeof conversationStore.deleteConversation === "function") {
+      await conversationStore.deleteConversation(conversationId)
+      return
+    }
+
+    // Fallback HMR: action store non injectée, on supprime via API puis local store.
+    await deleteConversationApi(conversationId)
+    if (typeof conversationStore.deleteConversationLocal === "function") {
+      conversationStore.deleteConversationLocal(conversationId)
+    }
+  } catch (error) {
+    console.error(error)
+    alert("Suppression de conversation impossible.")
   }
 }
 
@@ -507,9 +534,12 @@ watch(
       @view-contract="openContractPreview"
     />
 
-    <JobsSection v-else-if="activeTab === 'My Jobs'" />
+    <JobsSection
+      v-else-if="activeTab === 'My Jobs'"
+      @open-applicant-chat="handleStartFriendChat"
+    />
 
-    <RechargerJobsSection v-else-if="activeTab === 'Find a job'" />
+    <SearchJobsSection v-else-if="activeTab === 'Find a job'" />
 
     <MessagesSection
       v-else-if="activeTab === 'Messages'"
@@ -520,6 +550,7 @@ watch(
       @select-conversation="handleSelectConversation"
       @send-message="handleSendMessage"
       @start-friend-chat="handleStartFriendChat"
+      @delete-conversation="handleDeleteConversation"
       @delete-message="handleDeleteMessage"
     />
 
