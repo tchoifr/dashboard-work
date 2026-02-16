@@ -83,6 +83,9 @@ async function handleSaveProfile(updatedProfile) {
 // ==========================
 const contractsStore = useContractsStore()
 const activeContracts = computed(() => contractsStore.myContracts)
+const visibleContracts = computed(() =>
+  activeContracts.value.length ? activeContracts.value : contractsStore.items,
+)
 
 // ==========================
 // WALLETS FOR CONTRACT MODAL
@@ -110,6 +113,13 @@ const walletGuardLoading = ref(false)
 const walletGuardOk = computed(
   () => !walletGuardLoading.value && !walletGuardError.value && !!phantomAddress.value,
 )
+const overviewWallet = computed(() => ({
+  address: phantomAddress.value,
+  chain: phantomNetwork.value || walletConfigSafe.value.chain || "",
+  balance: phantomUsdcBalance.value,
+  loading: walletGuardLoading.value,
+  error: walletGuardError.value,
+}))
 
 const refreshWalletGuard = async () => {
   if (walletGuardLoading.value) return
@@ -404,6 +414,14 @@ async function handleDeleteConversation(conversationId) {
   }
 }
 
+function handleOverviewViewAllWallet() {
+  activeTab.value = "Contracts"
+}
+
+function handleOverviewViewAllTransactions() {
+  activeTab.value = "Messages"
+}
+
 // ==========================
 // WATCH LOGIN
 // ==========================
@@ -525,11 +543,19 @@ watch(
     <!-- ======================
          SECTIONS
     ======================= -->
-    <OverviewSection v-if="activeTab === 'Overview'" />
+    <OverviewSection
+      v-if="activeTab === 'Overview'"
+      :contracts="visibleContracts"
+      :conversations="messageConversations"
+      :wallet="overviewWallet"
+      @view-all-wallet="handleOverviewViewAllWallet"
+      @view-all-transactions="handleOverviewViewAllTransactions"
+      @view-contract="openContractPreview"
+    />
 
     <ContractsSection
       v-else-if="activeTab === 'Contracts'"
-      :contracts="activeContracts"
+      :contracts="visibleContracts"
       @create-contract="openCreateContract"
       @view-contract="openContractPreview"
     />
