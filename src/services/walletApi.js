@@ -24,6 +24,23 @@ const normalizeWalletConfig = (data) => {
     data.admin_2_fee_ata ??
     null
 
+  const admin1UserUuid =
+    data.admin1UserUuid ??
+    data.admin1UserUUID ??
+    data.admin_1_user_uuid ??
+    data.admin1_uuid ??
+    data.admin_1_uuid ??
+    data.ADMIN1_USER_UUID ??
+    null
+  const admin2UserUuid =
+    data.admin2UserUuid ??
+    data.admin2UserUUID ??
+    data.admin_2_user_uuid ??
+    data.admin2_uuid ??
+    data.admin_2_uuid ??
+    data.ADMIN2_USER_UUID ??
+    null
+
   return {
     chainSlug: data.chainSlug ?? data.chain_slug ?? chain,
     chain,
@@ -50,6 +67,8 @@ const normalizeWalletConfig = (data) => {
     adminFeeAccount: feeUsdcAta,
     admin1: data.admin1 ?? data.admin_1 ?? null,
     admin2: data.admin2 ?? data.admin_2 ?? null,
+    admin1UserUuid,
+    admin2UserUuid,
     admin1UsdcAta,
     admin2UsdcAta,
     admin1FeeAta: admin1UsdcAta,

@@ -5,6 +5,11 @@ defineProps({
     default: () => [],
   },
 })
+
+const isDisputeStatus = (status) => {
+  const normalized = String(status || "").toLowerCase()
+  return normalized.includes("litige") || normalized.includes("dispute")
+}
 </script>
 
 <template>
@@ -18,7 +23,7 @@ defineProps({
 
     <div class="grid">
       <article
-        v-for="contract in disputes.filter((c) => c.status && c.status.toLowerCase().includes('litige'))"
+        v-for="contract in disputes.filter((c) => isDisputeStatus(c.status))"
         :key="contract.name"
         class="card"
       >

@@ -8,9 +8,25 @@ import { useProfileStore } from "../store/profile"
 import { useWalletConfigStore } from "../store/walletConfig"
 import { useContractsStore } from "../store/contracts"
 import { useJobsStore } from "../store/jobs"
+import {
+  buildResolveTx as buildResolveTxApi,
+  getAdminDispute as getAdminDisputeApi,
+  listAdminDisputes as listAdminDisputesApi,
+  resetDisputeVotes as resetDisputeVotesApi,
+  resolveDispute as resolveDisputeApi,
+  voteDispute as voteDisputeApi,
+} from "../services/contractsApi"
 import { getConnection } from "../solana/connection"
 import { connectPhantom, getPhantomProvider } from "../solana/phantom"
 import { getUsdcBalance } from "../solana/usdc"
+import { PublicKey, Transaction } from "@solana/web3.js"
+import {
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+  TOKEN_PROGRAM_ID,
+  createAssociatedTokenAccountInstruction,
+  createTransferInstruction,
+  getAssociatedTokenAddress,
+} from "@solana/spl-token"
 import byhnexLogo from "../assets/byhnexLogo.png"
 
 // SECTIONS
@@ -20,7 +36,6 @@ import JobsSection from "./JobsSection.vue"
 import SearchJobsSection from "./SearchJobsSection.vue"
 import MessagesSection from "./MessagesSection.vue"
 import ProfileSection from "./ProfileSection.vue"
-import DaoDisputesSection from "./DaoDisputesSection.vue"
 import AdminSection from "./AdminSection.vue"
 
 // MODALS
@@ -39,16 +54,7 @@ const showAuth = ref(!auth.isAuthenticated)
 // ==========================
 // TABS
 // ==========================
-const tabs = [
-  "Overview",
-  "Contracts",
-  "My Jobs",
-  "Find a job",
-  "Messages",
-  "Profile",
-  "DAO",
-  "Admin",
-]
+const baseTabs = ["Overview", "Contracts", "My Jobs", "Find a job", "Messages", "Profile"]
 const activeTab = ref("Overview")
 
 // ==========================
@@ -88,6 +94,84 @@ const activeContracts = computed(() => contractsStore.myContracts)
 const visibleContracts = computed(() =>
   activeContracts.value.length ? activeContracts.value : contractsStore.items,
 )
+const adminDisputeItems = ref([])
+const adminDisputesLoading = ref(false)
+const adminDisputesError = ref("")
+const adminActionLoadingId = ref(null)
+
+const parseAmount = (value) => {
+  if (value == null) return 0
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0
+  const cleaned = String(value).trim().replace(/\s+/g, "").replace(",", ".")
+  const parsed = Number(cleaned)
+  return Number.isFinite(parsed) ? parsed : 0
+}
+const disputedContracts = computed(() =>
+  adminDisputeItems.value.filter((item) => String(item?.status || "").toUpperCase() === "OPEN"),
+)
+const adminDisputes = computed(() =>
+  disputedContracts.value.map((item) => {
+    const contract = item?.contract || {}
+    const votes = item?.votes || {}
+    const votesFor = [votes?.admin1, votes?.admin2].filter(Boolean).length
+    const adminContract = {
+      ...contract,
+      amountUsdc: contract?.amountUsdc ?? contract?.amounts?.totalUsdc ?? contract?.amount ?? null,
+      description: contract?.description || item?.reason || "",
+      checkpoints:
+        contract?.checkpoints ||
+        contract?.validationCheckpoints ||
+        (item?.reason ? [`Litige: ${item.reason}`] : []),
+      dispute: {
+        ...(contract?.dispute || {}),
+        id: item?.id ?? contract?.dispute?.id ?? null,
+        status: item?.status || contract?.dispute?.status || "OPEN",
+        reason: item?.reason ?? contract?.dispute?.reason ?? "",
+        canResolve: item?.canResolve ?? contract?.dispute?.canResolve ?? false,
+        votes,
+      },
+    }
+
+    return {
+      id: item?.id || contract?.uuid || contract?.id,
+      contractUuid: contract?.uuid || contract?.id || null,
+      contract: adminContract,
+      votes,
+      myVote: String(item?.myVote || item?.my_vote || "").toUpperCase() || null,
+      name: contract?.title || contract?.contractTitle || contract?.name || "Contract",
+      client:
+        contract?.employer?.username ||
+        contract?.employerName ||
+        contract?.employer?.walletAddress ||
+        "-",
+      amount: `${parseAmount(contract?.amountUsdc || contract?.amounts?.totalUsdc || contract?.amount).toFixed(2)} USDC`,
+      period: `${contract?.startAt || "-"} -> ${contract?.endAt || "-"}`,
+      votesFor,
+      totalVoters: 2,
+      status: item?.status || "OPEN",
+      expected: item?.reason || "-",
+      delivered: item?.resolutionType || "-",
+    }
+  }),
+)
+const resolvedDisputesCount = computed(
+  () => adminDisputeItems.value.filter((item) => String(item?.status || "").toUpperCase() === "RESOLVED").length,
+)
+const adminCards = computed(() => [
+  {
+    tag: "Disputes",
+    title: "Litiges ouverts",
+    value: adminDisputesLoading.value ? "..." : String(adminDisputes.value.length),
+    subtext: adminDisputesError.value || "Contrats en état de dispute",
+  },
+  {
+    tag: "Arbitrage",
+    title: "Décisions résolues",
+    value: adminDisputesLoading.value ? "..." : String(resolvedDisputesCount.value),
+    subtext: "Résolutions finalisées",
+  },
+])
+const adminTransactions = computed(() => [])
 const jobsStore = useJobsStore()
 const totalApplicantsOnMyJobs = computed(() =>
   (jobsStore.myJobs || []).reduce((sum, job) => sum + Number(job?.applicantsCount || 0), 0),
@@ -102,6 +186,28 @@ const walletConfigStore = useWalletConfigStore()
 const { config: walletConfig, loading: walletConfigLoading, error: walletConfigError } =
   storeToRefs(walletConfigStore)
 const walletConfigSafe = computed(() => walletConfig.value || {})
+const normalizeComparable = (value) => String(value || "").trim().toLowerCase()
+const isAdminUser = computed(() => {
+  const user = auth.user || {}
+  const userUuid = user?.uuid || user?.userUuid || user?.id || auth.userUuid || null
+  const userWallet = user?.walletAddress || user?.wallet_address || null
+  const userIsAdmin = Boolean(user?.is_admin ?? user?.isAdmin)
+
+  if (userIsAdmin) return true
+
+  const admin1Uuid = walletConfigSafe.value.admin1UserUuid
+  const admin2Uuid = walletConfigSafe.value.admin2UserUuid
+  const uuids = [admin1Uuid, admin2Uuid].map(normalizeComparable).filter(Boolean)
+  if (normalizeComparable(userUuid) && uuids.includes(normalizeComparable(userUuid))) return true
+
+  const admin1Wallet = walletConfigSafe.value.admin1
+  const admin2Wallet = walletConfigSafe.value.admin2
+  const wallets = [admin1Wallet, admin2Wallet].map(normalizeComparable).filter(Boolean)
+  if (normalizeComparable(userWallet) && wallets.includes(normalizeComparable(userWallet))) return true
+
+  return false
+})
+const tabs = computed(() => (isAdminUser.value ? [...baseTabs, "Admin"] : [...baseTabs]))
 
 const isPlaceholderKey = (value) =>
   !value || value === "11111111111111111111111111111111"
@@ -254,6 +360,7 @@ function handleWindowFocus() {
 const showCreateContract = ref(false)
 const showContractViewer = ref(false)
 const previewContract = ref(null)
+const previewAdminReadonly = ref(false)
 const logoutInProgress = ref(false)
 let phantomDisconnectHandler = null
 let phantomAccountChangedHandler = null
@@ -294,6 +401,27 @@ async function loadMyContracts() {
   }
 }
 
+async function loadAdminDisputes() {
+  if (!isAdminUser.value) return
+  adminDisputesLoading.value = true
+  adminDisputesError.value = ""
+  try {
+    const extractItems = (data) => (Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [])
+
+    // Always fetch full admin disputes list for accurate cards (OPEN + RESOLVED).
+    const allData = await listAdminDisputesApi({ page: 1, limit: 100 })
+    const items = extractItems(allData)
+
+    adminDisputeItems.value = items
+    if (!adminDisputeItems.value.length) adminDisputesError.value = "Aucun litige ouvert."
+  } catch (e) {
+    adminDisputesError.value = e?.response?.data?.message || e?.message || "Impossible de charger les litiges."
+    adminDisputeItems.value = []
+  } finally {
+    adminDisputesLoading.value = false
+  }
+}
+
 async function loadMyJobsSummary() {
   if (!auth.isAuthenticated) return
   try {
@@ -305,7 +433,14 @@ async function loadMyJobsSummary() {
 
 async function loadWalletConfig() {
   try {
-    await walletConfigStore.fetchWalletConfig({ auth: true, force: true })
+    let cfg = await walletConfigStore.fetchWalletConfig({ auth: true, force: true })
+    if (!cfg) {
+      cfg = await walletConfigStore.fetchWalletConfig({ auth: false, force: true })
+    }
+    if (!cfg) {
+      console.warn("Wallet config vide (non bloquant pour l'affichage admin disputes).")
+      return
+    }
     console.log("✅ Wallet config loaded:", walletConfig.value)
   } catch (e) {
     console.error("❌ Load wallet config failed", e)
@@ -401,18 +536,255 @@ function createContractSuccess(contract) {
   showCreateContract.value = false
 }
 
-function openContractPreview(contract) {
+function openContractPreview(contract, { adminReadonly = false } = {}) {
   previewContract.value = contract
+  previewAdminReadonly.value = adminReadonly
   showContractViewer.value = true
 }
 
 function closeContractPreview() {
   previewContract.value = null
+  previewAdminReadonly.value = false
   showContractViewer.value = false
+}
+
+function openAdminDispute(disputeItem) {
+  const contract = disputeItem?.contract
+  if (!contract) return
+  openContractPreview(contract, { adminReadonly: true })
+}
+
+async function handleAdminDecision({ disputeId, vote }) {
+  if (!disputeId || !vote) return
+  adminActionLoadingId.value = disputeId
+  try {
+    // Read back authoritative votes from admin endpoint.
+    const detail = await getAdminDisputeApi(disputeId)
+    const item = detail?.item || null
+    const backendMyVote = String(item?.myVote || item?.my_vote || "").toUpperCase()
+    if (backendMyVote) {
+      alert(`Vote déjà enregistré (${backendMyVote}).`)
+      await loadAdminDisputes()
+      return
+    }
+
+    const me = String(auth.user?.uuid || auth.user?.userUuid || auth.user?.id || auth.userUuid || "").trim()
+    const admin1Uuid = String(walletConfigSafe.value.admin1UserUuid || "").trim()
+    const admin2Uuid = String(walletConfigSafe.value.admin2UserUuid || "").trim()
+    const myCurrentVote =
+      me && admin1Uuid && me === admin1Uuid
+        ? String(item?.votes?.admin1 || "").toUpperCase()
+        : me && admin2Uuid && me === admin2Uuid
+          ? String(item?.votes?.admin2 || "").toUpperCase()
+          : ""
+    if (myCurrentVote) {
+      alert(`Vote déjà enregistré (${myCurrentVote}).`)
+      await loadAdminDisputes()
+      return
+    }
+
+    await voteAndAutoResolve(disputeId, vote)
+    await loadAdminDisputes()
+    await loadMyContracts()
+  } catch (error) {
+    const status = error?.response?.status
+    if (status === 403) {
+      alert("403: vous n'êtes pas admin autorisé pour cette action.")
+    } else if (status === 409) {
+      alert("409: état du litige incompatible (votes non alignés ou déjà résolu).")
+    } else {
+      alert(error?.response?.data?.message || error?.message || "Action admin impossible.")
+    }
+  } finally {
+    adminActionLoadingId.value = null
+  }
+}
+
+async function voteAndAutoResolve(disputeId, vote) {
+  await voteDisputeApi(disputeId, vote)
+
+  const detailAfterVote = await getAdminDisputeApi(disputeId)
+  const itemAfterVote = detailAfterVote?.item || null
+  const status = String(itemAfterVote?.status || "").toUpperCase()
+  const v1 = String(itemAfterVote?.votes?.admin1 || "").toUpperCase()
+  const v2 = String(itemAfterVote?.votes?.admin2 || "").toUpperCase()
+  const hasDisagreement = !!v1 && !!v2 && v1 !== v2
+
+  if (status === "OPEN" && hasDisagreement) {
+    await resetDisputeVotesApi(disputeId)
+    return await getAdminDisputeApi(disputeId)
+  }
+
+  if (status === "OPEN" && itemAfterVote?.canResolve === true) {
+    const txSig = await executeResolveTxWithWallet(disputeId)
+    await resolveWithRetry(disputeId, txSig)
+    return await getAdminDisputeApi(disputeId)
+  }
+
+  return detailAfterVote
+}
+
+async function executeResolveTxWithWallet(disputeId) {
+  const planResp = await buildResolveTxApi(disputeId)
+  const plan = planResp?.plan || null
+  if (!plan) throw new Error("Plan resolve introuvable.")
+
+  const usdcMint = String(plan?.usdcMint || "").trim()
+  if (!usdcMint) throw new Error("usdcMint manquant dans le plan de resolve.")
+
+  const feeAtaRaw = String(plan?.recipients?.bynnexFeeAta || "").trim()
+  const employerWalletRaw = String(plan?.recipients?.employerWallet || "").trim()
+  const freelancerWalletRaw = String(plan?.recipients?.freelancerWallet || "").trim()
+  if (!feeAtaRaw || !employerWalletRaw || !freelancerWalletRaw) {
+    throw new Error("Destinataires resolve incomplets.")
+  }
+
+  const toBigIntMicros = (value) => {
+    const str = String(value ?? "0").trim()
+    if (!str) return 0n
+    return BigInt(str)
+  }
+  const feeAmount = toBigIntMicros(plan?.amounts?.feeDisputeMicros)
+  const toEmployer = toBigIntMicros(plan?.amounts?.toEmployerMicros)
+  const toFreelancer = toBigIntMicros(plan?.amounts?.toFreelancerMicros)
+
+  const expectedWallet = String(auth.user?.walletAddress || "").trim()
+  const { provider, publicKey } = await connectPhantom()
+  if (!provider || !publicKey) throw new Error("Wallet Phantom non connecté.")
+  const senderWallet = publicKey.toBase58()
+  if (expectedWallet && senderWallet !== expectedWallet) {
+    throw new Error("Wallet Phantom différent du compte connecté.")
+  }
+
+  const rpcUrl = String(walletConfigSafe.value.rpcUrl || "").trim()
+  if (!rpcUrl) throw new Error("rpcUrl manquant.")
+  const connection = getConnection(rpcUrl)
+
+  const mintPk = new PublicKey(usdcMint)
+  const senderPk = new PublicKey(senderWallet)
+  const senderAta = await getAssociatedTokenAddress(
+    mintPk,
+    senderPk,
+    false,
+    TOKEN_PROGRAM_ID,
+    ASSOCIATED_TOKEN_PROGRAM_ID,
+  )
+
+  const employerPk = new PublicKey(employerWalletRaw)
+  const freelancerPk = new PublicKey(freelancerWalletRaw)
+  const feeAta = new PublicKey(feeAtaRaw)
+  const employerAta = await getAssociatedTokenAddress(
+    mintPk,
+    employerPk,
+    false,
+    TOKEN_PROGRAM_ID,
+    ASSOCIATED_TOKEN_PROGRAM_ID,
+  )
+  const freelancerAta = await getAssociatedTokenAddress(
+    mintPk,
+    freelancerPk,
+    false,
+    TOKEN_PROGRAM_ID,
+    ASSOCIATED_TOKEN_PROGRAM_ID,
+  )
+
+  const tx = new Transaction()
+
+  const ensureAtaIxIfMissing = async (ata, owner) => {
+    const info = await connection.getAccountInfo(ata)
+    if (info) return
+    tx.add(
+      createAssociatedTokenAccountInstruction(
+        senderPk,
+        ata,
+        owner,
+        mintPk,
+        TOKEN_PROGRAM_ID,
+        ASSOCIATED_TOKEN_PROGRAM_ID,
+      ),
+    )
+  }
+
+  await ensureAtaIxIfMissing(employerAta, employerPk)
+  await ensureAtaIxIfMissing(freelancerAta, freelancerPk)
+
+  if (feeAmount > 0n) {
+    tx.add(
+      createTransferInstruction(
+        senderAta,
+        feeAta,
+        senderPk,
+        feeAmount,
+        [],
+        TOKEN_PROGRAM_ID,
+      ),
+    )
+  }
+  if (toEmployer > 0n) {
+    tx.add(
+      createTransferInstruction(
+        senderAta,
+        employerAta,
+        senderPk,
+        toEmployer,
+        [],
+        TOKEN_PROGRAM_ID,
+      ),
+    )
+  }
+  if (toFreelancer > 0n) {
+    tx.add(
+      createTransferInstruction(
+        senderAta,
+        freelancerAta,
+        senderPk,
+        toFreelancer,
+        [],
+        TOKEN_PROGRAM_ID,
+      ),
+    )
+  }
+  if (tx.instructions.length === 0) {
+    throw new Error("Aucun transfert à effectuer pour ce litige.")
+  }
+
+  tx.feePayer = senderPk
+  const latest = await connection.getLatestBlockhash("confirmed")
+  tx.recentBlockhash = latest.blockhash
+
+  let signature = null
+  if (typeof provider.signAndSendTransaction === "function") {
+    const res = await provider.signAndSendTransaction(tx)
+    signature = res?.signature || res
+  } else if (typeof provider.sendTransaction === "function") {
+    signature = await provider.sendTransaction(tx, connection)
+  } else {
+    throw new Error("Wallet Phantom ne supporte pas l'envoi de transaction.")
+  }
+
+  const txSig = String(signature || "").trim()
+  if (!txSig) throw new Error("Signature transaction vide.")
+  await connection.confirmTransaction(txSig, "confirmed")
+  return txSig
+}
+
+async function resolveWithRetry(disputeId, txSig) {
+  try {
+    await resolveDisputeApi(disputeId, { txSig })
+    return
+  } catch (error) {
+    const status = error?.response?.status
+    const message = String(error?.response?.data?.message || error?.message || "")
+    const notConfirmed = status === 409 && message.toLowerCase().includes("not confirmed")
+    if (!notConfirmed) throw error
+    await new Promise((resolve) => setTimeout(resolve, 1500))
+    await resolveDisputeApi(disputeId, { txSig })
+  }
 }
 
 async function handleContractUpdated() {
   await loadMyContracts()
+  if (isAdminUser.value) await loadAdminDisputes()
   if (!previewContract.value) return
 
   const currentId = previewContract.value.uuid || previewContract.value.id
@@ -545,6 +917,8 @@ watch(
       conversationStore.reset()
       profileStore.reset()
       contractsStore.reset()
+      adminDisputeItems.value = []
+      adminDisputesError.value = ""
       activeTab.value = "Overview"
     }
   },
@@ -571,6 +945,19 @@ watch(
   () => auth.user?.walletAddress,
   () => {
     if (auth.isAuthenticated) refreshWalletGuard()
+  },
+)
+
+watch(
+  [() => activeTab.value, () => isAdminUser.value],
+  ([tab, canAccessAdmin]) => {
+    if (tab === "Admin" && !canAccessAdmin) {
+      activeTab.value = "Overview"
+      return
+    }
+    if (tab === "Admin" && canAccessAdmin) {
+      loadAdminDisputes()
+    }
   },
 )
 
@@ -717,9 +1104,18 @@ onBeforeUnmount(() => {
       @save-profile="handleSaveProfile"
     />
 
-    <DaoDisputesSection v-else-if="activeTab === 'DAO'" />
-
-    <AdminSection v-else :cards="[]" :disputes="[]" :transactions="[]" />
+    <AdminSection
+      v-else-if="activeTab === 'Admin' && isAdminUser"
+      :cards="adminCards"
+      :disputes="adminDisputes"
+      :transactions="adminTransactions"
+      :action-loading-id="adminActionLoadingId"
+      :current-admin-uuid="auth.user?.uuid || auth.user?.userUuid || auth.user?.id || auth.userUuid || ''"
+      :admin1-user-uuid="walletConfigSafe.admin1UserUuid || ''"
+      :admin2-user-uuid="walletConfigSafe.admin2UserUuid || ''"
+      @open-dispute-contract="openAdminDispute"
+      @decide-dispute="handleAdminDecision"
+    />
 
     <!-- ==========================
          MODAL : CREATE CONTRACT
@@ -753,12 +1149,15 @@ onBeforeUnmount(() => {
     <div v-if="showContractViewer" class="overlay" @click.self="closeContractPreview">
      <ContractPreviewModal
   :contract="previewContract"
+  :admin-readonly="previewAdminReadonly"
   :program-id="walletConfigSafe.programId"
   :usdc-mint="walletConfigSafe.usdcMint"
   :rpc-url="walletConfigSafe.rpcUrl"
   :fee-wallet="walletConfigSafe.feeWallet"
   :admin1="walletConfigSafe.admin1"
   :admin2="walletConfigSafe.admin2"
+  :admin1-user-uuid="walletConfigSafe.admin1UserUuid"
+  :admin2-user-uuid="walletConfigSafe.admin2UserUuid"
   :admin1-fee-ata="walletConfigSafe.admin1FeeAta"
   :admin2-fee-ata="walletConfigSafe.admin2FeeAta"
   @updated="handleContractUpdated"

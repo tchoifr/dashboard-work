@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed } from "vue"
 
 const props = defineProps({
   cards: {
@@ -14,29 +14,42 @@ const props = defineProps({
     type: Array,
     default: () => [],
   },
+  actionLoadingId: {
+    type: [String, Number],
+    default: null,
+  },
+  currentAdminUuid: {
+    type: String,
+    default: "",
+  },
+  admin1UserUuid: {
+    type: String,
+    default: "",
+  },
+  admin2UserUuid: {
+    type: String,
+    default: "",
+  },
 })
 
-const decisions = ref({})
-
-const disputesWithDecision = computed(() =>
-  props.disputes.map((dispute) => ({
-    ...dispute,
-    decision: decisions.value[dispute.id] || null,
-  }))
+const emit = defineEmits(["open-dispute-contract", "decide-dispute"])
+const pendingDisputes = computed(() =>
+  (props.disputes || []).filter((item) => String(item?.status || "").toUpperCase() === "OPEN"),
 )
+const normalizeComparable = (value) => String(value || "").trim().toLowerCase()
+const myVoteForDispute = (item) => {
+  const backendMyVote = String(item?.myVote || "").toUpperCase()
+  if (backendMyVote) return backendMyVote
 
-const approvedDisputes = computed(() => disputesWithDecision.value.filter((item) => item.decision === 'approved'))
-const rejectedDisputes = computed(() => disputesWithDecision.value.filter((item) => item.decision === 'rejected'))
-const pendingDisputes = computed(() => disputesWithDecision.value.filter((item) => !item.decision))
-
-const visibleTransactions = computed(() => props.transactions)
-
-const setDecision = (id, decision) => {
-  const current = decisions.value[id]
-  const nextDecision = current === decision ? null : decision
-  decisions.value = { ...decisions.value, [id]: nextDecision }
-  console.debug('Admin decision update', { disputeId: id, decision: nextDecision })
+  const me = normalizeComparable(props.currentAdminUuid)
+  if (!me) return null
+  const a1 = normalizeComparable(props.admin1UserUuid || item?.contract?.admin1UserUuid || item?.contract?.admin_1_user_uuid)
+  const a2 = normalizeComparable(props.admin2UserUuid || item?.contract?.admin2UserUuid || item?.contract?.admin_2_user_uuid)
+  if (me === a1) return String(item?.votes?.admin1 || "").toUpperCase() || null
+  if (me === a2) return String(item?.votes?.admin2 || "").toUpperCase() || null
+  return null
 }
+const isVoteLocked = (item) => !!myVoteForDispute(item)
 </script>
 
 <template>
@@ -88,25 +101,36 @@ const setDecision = (id, decision) => {
               <p class="votes">{{ item.votesFor }} / {{ item.totalVoters }}</p>
               <span class="status-chip">{{ item.status }}</span>
               <div class="decision-area">
-                <p class="decision-state">
-                  {{ item.decision === 'approved' ? 'Validé' : item.decision === 'rejected' ? 'Refusé' : 'En attente' }}
-                </p>
+                <button class="action-btn neutral" type="button" @click="emit('open-dispute-contract', item)">
+                  Ouvrir contrat
+                </button>
                 <div class="decision-actions">
                   <button
                     class="action-btn approve"
-                    :class="{ active: item.decision === 'approved' }"
+                    :class="{ active: myVoteForDispute(item) === 'EMPLOYER' }"
                     type="button"
-                    @click="setDecision(item.id, 'approved')"
+                    :disabled="String(props.actionLoadingId) === String(item.id) || isVoteLocked(item)"
+                    @click="emit('decide-dispute', { disputeId: item.id, vote: 'EMPLOYER' })"
                   >
-                    Valider
+                    Employer
                   </button>
                   <button
-                    class="action-btn reject"
-                    :class="{ active: item.decision === 'rejected' }"
+                    class="action-btn approve"
+                    :class="{ active: myVoteForDispute(item) === 'FREELANCER' }"
                     type="button"
-                    @click="setDecision(item.id, 'rejected')"
+                    :disabled="String(props.actionLoadingId) === String(item.id) || isVoteLocked(item)"
+                    @click="emit('decide-dispute', { disputeId: item.id, vote: 'FREELANCER' })"
                   >
-                    Refuser
+                    Freelancer
+                  </button>
+                  <button
+                    class="action-btn approve"
+                    :class="{ active: myVoteForDispute(item) === 'SPLIT' }"
+                    type="button"
+                    :disabled="String(props.actionLoadingId) === String(item.id) || isVoteLocked(item)"
+                    @click="emit('decide-dispute', { disputeId: item.id, vote: 'SPLIT' })"
+                  >
+                    Split
                   </button>
                 </div>
               </div>
@@ -124,68 +148,6 @@ const setDecision = (id, decision) => {
             <p v-if="!pendingDisputes.length" class="empty-row">Aucun litige en attente de décision.</p>
           </div>
         </div>
-      </article>
-
-      <article class="panel transactions">
-        <header class="panel-header">
-          <div>
-            <p class="eyebrow">Flux financiers</p>
-            <h3>Transactions en temps réel</h3>
-          </div>
-          <span class="count">{{ transactions.length }} mouvements</span>
-        </header>
-
-        <div class="ledger-scroll">
-          <ul class="ledger">
-            <li v-for="tx in visibleTransactions" :key="tx.id" class="ledger-item">
-              <div class="ledger-left">
-                <span class="dot" />
-                <div>
-                  <p class="title">{{ tx.label }}</p>
-                  <p class="muted">{{ tx.date }} · {{ tx.time }} · {{ tx.contract }}</p>
-                  <p class="hash">Tx: {{ tx.txHash }}</p>
-                  <p class="fee">5% plateforme: {{ tx.platformShare }}</p>
-                </div>
-              </div>
-              <div class="ledger-right">
-                <p class="amount">{{ tx.amount }}</p>
-                <span class="status-pill" :class="tx.status">{{ tx.status }}</span>
-              </div>
-            </li>
-          </ul>
-        </div>
-      </article>
-    </div>
-
-    <div class="decision-panels">
-      <article class="decision-card">
-        <header>
-          <p class="eyebrow">Litiges validés</p>
-          <h3>Décisions favorables</h3>
-        </header>
-        <ul class="decision-list">
-          <li v-for="item in approvedDisputes" :key="`validated-${item.id}`">
-            <p class="title">{{ item.name }}</p>
-            <p class="muted">{{ item.client }} · {{ item.amount }}</p>
-            <p class="detail-text">Livré: {{ item.delivered }}</p>
-          </li>
-          <li v-if="!approvedDisputes.length" class="empty">Aucun litige validé pour le moment.</li>
-        </ul>
-      </article>
-
-      <article class="decision-card">
-        <header>
-          <p class="eyebrow">Litiges refusés</p>
-          <h3>Décisions défavorables</h3>
-        </header>
-        <ul class="decision-list">
-          <li v-for="item in rejectedDisputes" :key="`rejected-${item.id}`">
-            <p class="title">{{ item.name }}</p>
-            <p class="muted">{{ item.client }} · {{ item.amount }}</p>
-            <p class="detail-text">Attendu: {{ item.expected }}</p>
-          </li>
-          <li v-if="!rejectedDisputes.length" class="empty">Aucun litige refusé pour le moment.</li>
-        </ul>
       </article>
     </div>
   </section>
@@ -362,6 +324,7 @@ h3 {
 .table-row {
   padding: 12px 0;
   border-bottom: 1px solid rgba(120, 90, 255, 0.15);
+  align-items: start;
 }
 
 .empty-row {
@@ -400,12 +363,14 @@ h3 {
   color: #f0ecff;
   font-weight: 600;
   margin-bottom: 4px;
+  word-break: break-word;
 }
 
 .client,
 .votes {
   color: #d3ddff;
   font-weight: 600;
+  word-break: break-word;
 }
 
 .amount {
@@ -429,6 +394,7 @@ h3 {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-width: 0;
 }
 
 .decision-state {
@@ -456,6 +422,11 @@ h3 {
   transition: all 0.15s ease;
 }
 
+.action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .action-btn.approve:hover,
 .action-btn.approve.active {
   background: rgba(101, 242, 198, 0.14);
@@ -468,6 +439,12 @@ h3 {
   background: rgba(255, 139, 167, 0.14);
   border-color: rgba(255, 139, 167, 0.45);
   color: #ff8ba7;
+}
+
+.action-btn.neutral:hover {
+  background: rgba(129, 171, 255, 0.16);
+  border-color: rgba(129, 171, 255, 0.45);
+  color: #c8dbff;
 }
 
 .ledger {
