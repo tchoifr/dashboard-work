@@ -101,12 +101,12 @@ export async function submitForm({
       return;
     }
 
-    const freelancerWallet = freelancer.walletAddress;
-    if (!freelancerWallet) {
+    const freelancerWalletAddress = freelancer.walletAddress;
+    if (!freelancerWalletAddress) {
       alert("Le freelance sélectionné est invalide (wallet manquant).");
       return;
     }
-    const workerPk = new PublicKey(freelancerWallet);
+    const workerPk = new PublicKey(freelancerWalletAddress);
 
     if (!form.timeline?.start || !form.timeline?.end) {
       alert("Please select start and end dates.");
@@ -302,6 +302,10 @@ export async function submitForm({
     txStatus.value = "Contrat financé.";
     const draftContract = draft?.contract || draft || {}
     const fundedContract = funded?.contract || funded || {}
+    const employerName = auth?.user?.username || auth?.user?.name || null
+    const employerWallet = publicKey?.toBase58?.() || walletAddress.value || null
+    const freelancerName = freelancer?.label || freelancer?.username || freelancer?.name || null
+    const freelancerWallet = freelancerWalletAddress || null
     emit("created", {
       ...draftContract,
       ...fundedContract,
@@ -340,6 +344,66 @@ export async function submitForm({
         draftContract.contractIdU64 ||
         draftContract.contract_id_u64 ||
         String(contractIdU64Raw),
+      employerName:
+        draftContract.employerName ||
+        draftContract.employer_name ||
+        fundedContract.employerName ||
+        fundedContract.employer_name ||
+        employerName,
+      employerWallet:
+        draftContract.employerWallet ||
+        draftContract.employer_wallet ||
+        draftContract.initializerWallet ||
+        draftContract.initializer_wallet ||
+        fundedContract.employerWallet ||
+        fundedContract.employer_wallet ||
+        fundedContract.initializerWallet ||
+        fundedContract.initializer_wallet ||
+        employerWallet,
+      freelancerName:
+        draftContract.freelancerName ||
+        draftContract.freelancer_name ||
+        fundedContract.freelancerName ||
+        fundedContract.freelancer_name ||
+        freelancerName,
+      freelancerWallet:
+        draftContract.freelancerWallet ||
+        draftContract.freelancer_wallet ||
+        draftContract.workerWallet ||
+        draftContract.worker_wallet ||
+        fundedContract.freelancerWallet ||
+        fundedContract.freelancer_wallet ||
+        fundedContract.workerWallet ||
+        fundedContract.worker_wallet ||
+        freelancerWallet,
+      employer: {
+        ...(draftContract.employer || {}),
+        ...(fundedContract.employer || {}),
+        username:
+          draftContract.employer?.username ||
+          fundedContract.employer?.username ||
+          employerName,
+        walletAddress:
+          draftContract.employer?.walletAddress ||
+          draftContract.employer?.wallet_address ||
+          fundedContract.employer?.walletAddress ||
+          fundedContract.employer?.wallet_address ||
+          employerWallet,
+      },
+      freelancer: {
+        ...(draftContract.freelancer || {}),
+        ...(fundedContract.freelancer || {}),
+        username:
+          draftContract.freelancer?.username ||
+          fundedContract.freelancer?.username ||
+          freelancerName,
+        walletAddress:
+          draftContract.freelancer?.walletAddress ||
+          draftContract.freelancer?.wallet_address ||
+          fundedContract.freelancer?.walletAddress ||
+          fundedContract.freelancer?.wallet_address ||
+          freelancerWallet,
+      },
       vaultPda: fundedContract.vaultPda || fundedContract.vault_pda || vaultPda.toBase58(),
       escrowStatePda: fundedContract.escrowStatePda || fundedContract.escrow_state_pda || escrowStatePda.toBase58(),
     });

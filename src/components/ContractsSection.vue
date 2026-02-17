@@ -1,5 +1,6 @@
 <script setup>
 import { jsPDF } from 'jspdf'
+import byhnexLogo from "../assets/byhnexLogo.png"
 
 const props = defineProps({
   contracts: Array,
@@ -37,16 +38,6 @@ const contractTitle = (contract) =>
     if (!title || isGeneratedContractTitle(title)) return "Untitled contract"
     return title
   })()
-
-const contractClient = (contract) =>
-  contract.client ||
-  contract.employerLabel ||
-  contract.employerName ||
-  contract.freelancer?.username ||
-  contract.freelancer?.walletAddress ||
-  contract.freelancer?.wallet_address ||
-  contract.employer?.username ||
-  ''
 
 const contractAmount = (contract) => {
   const value = toNumber(
@@ -120,15 +111,261 @@ const contractPeriod = (contract) => {
   return `${start || "?"} -> ${end || "?"}`
 }
 
-const downloadContract = (contract) => {
-  const doc = new jsPDF()
-  doc.setFontSize(16)
-  doc.text(contractTitle(contract), 20, 20)
+const formatHumanDate = (value) => {
+  if (!value) return "-"
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return "-"
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(date)
+}
+
+const shorten = (value, left = 6, right = 4) => {
+  const raw = String(value || "").trim()
+  if (!raw) return "-"
+  if (raw.length <= left + right + 3) return raw
+  return `${raw.slice(0, left)}...${raw.slice(-right)}`
+}
+
+const isUuidLike = (value) =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    String(value || "").trim(),
+  )
+
+const cleanName = (value) => {
+  const v = String(value || "").trim()
+  if (!v) return "-"
+  if (isUuidLike(v)) return "-"
+  return v
+}
+
+const resolveEmployerName = (contract) =>
+  cleanName(
+    contract?.employer?.username ||
+      contract?.employer?.name ||
+      contract?.employerName ||
+      contract?.employer_name ||
+      "",
+  )
+
+const resolveEmployerWallet = (contract) =>
+  contract?.employer?.walletAddress ||
+  contract?.employer?.wallet_address ||
+  contract?.employerWallet ||
+  contract?.employer_wallet ||
+  contract?.initializerWallet ||
+  contract?.initializer_wallet ||
+  "-"
+
+const resolveFreelancerName = (contract) =>
+  cleanName(
+    contract?.freelancer?.username ||
+      contract?.freelancer?.name ||
+      contract?.freelancerName ||
+      contract?.freelancer_name ||
+      "",
+  )
+
+const resolveFreelancerWallet = (contract) =>
+  contract?.freelancer?.walletAddress ||
+  contract?.freelancer?.wallet_address ||
+  contract?.freelancerWallet ||
+  contract?.freelancer_wallet ||
+  contract?.workerWallet ||
+  contract?.worker_wallet ||
+  "-"
+
+const resolveNetwork = (contract) => contract?.chain || "Solana"
+
+const resolveEscrow = (contract) =>
+  contract?.escrowStatePda ||
+  contract?.escrow_state_pda ||
+  contract?.onchain?.escrowStatePda ||
+  contract?.onchain?.escrow_state_pda ||
+  "-"
+
+const resolveTxHash = (contract) =>
+  contract?.txFundSig ||
+  contract?.tx_fund_sig ||
+  contract?.txReleaseSig ||
+  contract?.tx_release_sig ||
+  contract?.txResolveSig ||
+  contract?.tx_resolve_sig ||
+  null
+
+const resolveProgramId = (contract) =>
+  contract?.programId ||
+  contract?.program_id ||
+  contract?.onchain?.programId ||
+  contract?.onchain?.program_id ||
+  null
+
+const hasValue = (value) => {
+  const v = String(value || "").trim()
+  return !!v && v !== "-"
+}
+
+const resolveExplorerCluster = (contract) => {
+  const chain = String(contract?.chain || "").toLowerCase()
+  if (chain.includes("mainnet")) return ""
+  if (chain.includes("testnet")) return "testnet"
+  return "devnet"
+}
+
+const buildExplorerUrl = (kind, value, contract) => {
+  if (!hasValue(value)) return null
+  const cluster = resolveExplorerCluster(contract)
+  const encoded = encodeURIComponent(String(value).trim())
+  const base = kind === "tx"
+    ? `https://explorer.solana.com/tx/${encoded}`
+    : `https://explorer.solana.com/address/${encoded}`
+  return cluster ? `${base}?cluster=${cluster}` : base
+}
+
+const resolveCheckpoints = (contract) => {
+  const raw =
+    contract?.checkpoints ||
+    contract?.validationCheckpoints ||
+    contract?.validation_checkpoints ||
+    null
+
+  if (Array.isArray(raw)) return raw.map((v) => String(v || "").trim()).filter(Boolean)
+  if (typeof raw === "string") {
+    return raw
+      .split(/\n|;/)
+      .map((v) => v.trim())
+      .filter(Boolean)
+  }
+  return []
+}
+
+const buildContractRef = (contract) => {
+  const baseDate = contractStart(contract) || contract?.createdAt || contract?.created_at || new Date().toISOString()
+  const date = new Date(baseDate)
+  const yyyy = Number.isNaN(date.getTime()) ? "0000" : String(date.getFullYear())
+  const mm = Number.isNaN(date.getTime()) ? "00" : String(date.getMonth() + 1).padStart(2, "0")
+  const dd = Number.isNaN(date.getTime()) ? "00" : String(date.getDate()).padStart(2, "0")
+  const seq = String(contract?.id || contract?.contractIdU64 || "1").replace(/[^\d]/g, "").slice(-3).padStart(3, "0")
+  return `BNX-${yyyy}-${mm}${dd}-${seq}`
+}
+
+let logoPromise = null
+const getLogoImage = () => {
+  if (logoPromise) return logoPromise
+  logoPromise = new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => resolve(img)
+    img.onerror = reject
+    img.src = byhnexLogo
+  })
+  return logoPromise
+}
+
+const addSectionTitle = (doc, text, y) => {
+  doc.setFont("helvetica", "bold")
   doc.setFontSize(12)
-  doc.text(`Client: ${contractClient(contract)}`, 20, 35)
-  doc.text(`Amount: ${contractAmount(contract)}`, 20, 45)
-  doc.text(`Period: ${contractPeriod(contract)}`, 20, 55)
-  doc.text(`Status: ${contract.status || ''}`, 20, 65)
+  doc.setTextColor(40, 85, 170)
+  doc.text(text, 16, y)
+}
+
+const addLine = (doc, label, value, y) => {
+  doc.setFont("helvetica", "bold")
+  doc.setFontSize(10)
+  doc.setTextColor(25, 25, 25)
+  doc.text(`${label}:`, 16, y)
+  doc.setFont("helvetica", "normal")
+  doc.setTextColor(60, 60, 60)
+  const lines = doc.splitTextToSize(String(value || "-"), 145)
+  doc.text(lines, 58, y)
+  return y + Math.max(7, lines.length * 5 + 2)
+}
+
+const downloadContract = async (contract) => {
+  const doc = new jsPDF()
+
+  // Header
+  try {
+    const logoImg = await getLogoImage()
+    doc.addImage(logoImg, "PNG", 14, 10, 18, 18)
+  } catch {
+    // Logo is optional for PDF generation; continue without it.
+  }
+
+  doc.setFont("helvetica", "bold")
+  doc.setFontSize(18)
+  doc.setTextColor(26, 40, 84)
+  doc.text(contractTitle(contract), 105, 19, { align: "center" })
+
+  doc.setFont("helvetica", "bold")
+  doc.setFontSize(13)
+  doc.setTextColor(36, 110, 205)
+  doc.text("BYHNEX CONTRACT SUMMARY", 16, 36)
+
+  doc.setDrawColor(70, 110, 190)
+  doc.line(16, 39, 194, 39)
+
+  let y = 47
+  y = addLine(doc, "Contract ID", `#${buildContractRef(contract)}`, y)
+  y = addLine(doc, "Generated", formatHumanDate(new Date().toISOString()), y)
+
+  y += 4
+  addSectionTitle(doc, "Parties", y)
+  y += 7
+  y = addLine(doc, "Employer name", resolveEmployerName(contract), y)
+  y = addLine(doc, "Employer wallet", resolveEmployerWallet(contract), y)
+  y = addLine(doc, "Freelancer name", resolveFreelancerName(contract), y)
+  y = addLine(doc, "Freelancer wallet", resolveFreelancerWallet(contract), y)
+
+  y += 4
+  addSectionTitle(doc, "Payment", y)
+  y += 7
+  y = addLine(doc, "Amount", contractAmount(contract), y)
+  y = addLine(doc, "Network", resolveNetwork(contract), y)
+  y = addLine(doc, "Escrow", shorten(resolveEscrow(contract), 10, 6), y)
+
+  y += 4
+  addSectionTitle(doc, "Period", y)
+  y += 7
+  y = addLine(doc, "From", formatHumanDate(contractStart(contract)), y)
+  y = addLine(doc, "To", formatHumanDate(contractEnd(contract)), y)
+
+  y += 4
+  addSectionTitle(doc, "Blockchain Info", y)
+  y += 7
+  const txHash = resolveTxHash(contract)
+  const txExplorer = buildExplorerUrl("tx", txHash, contract)
+  const programId = resolveProgramId(contract)
+  const programExplorer = buildExplorerUrl("address", programId, contract)
+
+  if (hasValue(txHash)) {
+    y = addLine(doc, "Transaction Hash", shorten(txHash, 10, 6), y)
+    if (txExplorer) y = addLine(doc, "Tx Explorer", txExplorer, y)
+  }
+
+  if (hasValue(programId)) {
+    y = addLine(doc, "Program ID", programId, y)
+    if (programExplorer) y = addLine(doc, "Program Explorer", programExplorer, y)
+  }
+
+  const checkpoints = resolveCheckpoints(contract)
+  if (checkpoints.length) {
+    y += 4
+    addSectionTitle(doc, "Validation Checklist", y)
+    y += 7
+    for (let i = 0; i < checkpoints.length; i += 1) {
+      y = addLine(doc, `Checkpoint ${i + 1}`, checkpoints[i], y)
+    }
+  }
+
+  if (contract?.description) {
+    y += 4
+    addSectionTitle(doc, "Description", y)
+    y += 7
+    y = addLine(doc, "Scope", contract.description, y)
+  }
+
   doc.save(`${contractTitle(contract)}.pdf`)
 }
 
