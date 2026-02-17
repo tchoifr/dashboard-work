@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, watch } from "vue"
+import { ref, computed, onMounted, onBeforeUnmount, watch } from "vue"
 import { storeToRefs } from "pinia"
 import { useAuthStore } from "../store/auth"
 import { useConversationStore } from "../store/conversations"
@@ -137,17 +137,22 @@ const refreshWalletGuard = async () => {
     const phantom = getPhantomProvider()
     if (!phantom) {
       walletGuardError.value = "Phantom non détecté."
+      if (auth.isAuthenticated) await performLogout({ disconnectWallet: false })
       return
     }
 
     let publicKey = phantom.publicKey
     if (!publicKey) {
-      const trusted = await connectPhantom({ onlyIfTrusted: true, interactive: false })
+      const trusted = await Promise.race([
+        connectPhantom({ onlyIfTrusted: true, interactive: false }),
+        new Promise((resolve) => setTimeout(() => resolve(null), 1500)),
+      ])
       publicKey = trusted?.publicKey || phantom.publicKey
     }
 
     if (!publicKey) {
       walletGuardError.value = "Phantom non connecté."
+      if (auth.isAuthenticated) await performLogout({ disconnectWallet: false })
       return
     }
 
@@ -156,6 +161,7 @@ const refreshWalletGuard = async () => {
     const expectedWallet = auth.user?.walletAddress
     if (expectedWallet && expectedWallet !== phantomAddress.value) {
       walletGuardError.value = "Wallet Phantom ≠ wallet du compte."
+      if (auth.isAuthenticated) await performLogout({ disconnectWallet: false })
       return
     }
 
@@ -175,9 +181,71 @@ const refreshWalletGuard = async () => {
     phantomUsdcBalance.value = balanceInfo.amount
   } catch (e) {
     walletGuardError.value = e?.message || "Erreur de vérification wallet."
+    if (auth.isAuthenticated) await performLogout({ disconnectWallet: false })
   } finally {
     walletGuardLoading.value = false
   }
+}
+
+function attachPhantomSessionListeners() {
+  const phantom = getPhantomProvider()
+  if (!phantom?.on) return
+  if (phantomDisconnectHandler || phantomAccountChangedHandler) return
+
+  phantomDisconnectHandler = async () => {
+    if (!auth.isAuthenticated) return
+    await performLogout({ disconnectWallet: false })
+  }
+
+  phantomAccountChangedHandler = async (publicKey) => {
+    if (!auth.isAuthenticated) return
+    if (!publicKey) {
+      await performLogout({ disconnectWallet: false })
+      return
+    }
+
+    const connectedWallet = publicKey?.toBase58?.() || ""
+    const expectedWallet = auth.user?.walletAddress || ""
+    if (expectedWallet && connectedWallet && expectedWallet !== connectedWallet) {
+      await performLogout({ disconnectWallet: false })
+    }
+  }
+
+  phantom.on("disconnect", phantomDisconnectHandler)
+  phantom.on("accountChanged", phantomAccountChangedHandler)
+}
+
+function detachPhantomSessionListeners() {
+  const phantom = getPhantomProvider()
+  if (!phantom?.off) return
+
+  if (phantomDisconnectHandler) {
+    phantom.off("disconnect", phantomDisconnectHandler)
+    phantomDisconnectHandler = null
+  }
+  if (phantomAccountChangedHandler) {
+    phantom.off("accountChanged", phantomAccountChangedHandler)
+    phantomAccountChangedHandler = null
+  }
+}
+
+function startWalletSessionPolling() {
+  if (walletSessionInterval) return
+  walletSessionInterval = setInterval(() => {
+    if (!auth.isAuthenticated) return
+    refreshWalletGuard()
+  }, 15000)
+}
+
+function stopWalletSessionPolling() {
+  if (!walletSessionInterval) return
+  clearInterval(walletSessionInterval)
+  walletSessionInterval = null
+}
+
+function handleWindowFocus() {
+  if (!auth.isAuthenticated) return
+  refreshWalletGuard()
 }
 
 // ==========================
@@ -186,6 +254,10 @@ const refreshWalletGuard = async () => {
 const showCreateContract = ref(false)
 const showContractViewer = ref(false)
 const previewContract = ref(null)
+const logoutInProgress = ref(false)
+let phantomDisconnectHandler = null
+let phantomAccountChangedHandler = null
+let walletSessionInterval = null
 
 // ==========================
 // CONVERSATIONS
@@ -359,16 +431,30 @@ function handleConnected() {
   showAuth.value = false
 }
 
-async function handleLogout() {
+async function performLogout({ disconnectWallet = true } = {}) {
+  if (logoutInProgress.value) return
+  logoutInProgress.value = true
   try {
-    const phantom = getPhantomProvider()
-    await phantom?.disconnect?.()
+    detachPhantomSessionListeners()
+    if (disconnectWallet) {
+      const phantom = getPhantomProvider()
+      await phantom?.disconnect?.()
+    }
   } catch {
     // no-op
   } finally {
+    stopWalletSessionPolling()
     auth.logout()
     showAuth.value = true
+    activeTab.value = "Overview"
+    logoutInProgress.value = false
   }
+}
+
+async function handleLogout() {
+  try {
+    await performLogout({ disconnectWallet: true })
+  } catch {}
 }
 
 async function handleSelectConversation(conversationId) {
@@ -445,6 +531,8 @@ watch(
   (logged) => {
     showAuth.value = !logged
     if (logged) {
+      attachPhantomSessionListeners()
+      startWalletSessionPolling()
       loadWalletConfig()
       refreshWalletGuard()
       loadMyContracts()
@@ -452,6 +540,8 @@ watch(
       loadMessagingData()
       loadProfile()
     } else {
+      detachPhantomSessionListeners()
+      stopWalletSessionPolling()
       conversationStore.reset()
       profileStore.reset()
       contractsStore.reset()
@@ -464,7 +554,10 @@ watch(
 // MOUNT
 // ==========================
 onMounted(() => {
+  window.addEventListener("focus", handleWindowFocus)
   if (auth.isAuthenticated) {
+    attachPhantomSessionListeners()
+    startWalletSessionPolling()
     loadWalletConfig()
     refreshWalletGuard()
     loadMyContracts()
@@ -491,6 +584,12 @@ watch(
     if (auth.isAuthenticated) refreshWalletGuard()
   },
 )
+
+onBeforeUnmount(() => {
+  window.removeEventListener("focus", handleWindowFocus)
+  detachPhantomSessionListeners()
+  stopWalletSessionPolling()
+})
 </script>
 
 <template>
