@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from "vue"
 import { useJobsStore } from "../store/jobs"
+import { COUNTRY_OPTIONS } from "../data/countries"
 
 const jobsStore = useJobsStore()
 
@@ -25,6 +26,7 @@ const loading = computed(() => jobsStore.loadingMine)
 const saving = computed(() => jobsStore.saving)
 const error = computed(() => jobsStore.error)
 const myJobs = computed(() => jobsStore.myJobs)
+const countries = COUNTRY_OPTIONS
 
 onMounted(async () => {
   await jobsStore.fetchMine()
@@ -49,12 +51,14 @@ const closeForm = () => (showForm.value = false)
 
 const parseTags = (input) =>
   input
-    .split(",")
+    // Accept common separators, but keep comma as official UI separator.
+    .replace(/\s-\s/g, ",")
+    .split(/[;,]/)
     .map((t) => t.trim())
     .filter(Boolean)
 
 const submitJob = async () => {
-  if (!form.title || !form.companyName) return
+  if (!form.title || !form.companyName || !form.locationLabel) return
 
   const payload = {
     title: form.title.trim(),
@@ -73,6 +77,12 @@ const submitJob = async () => {
   } catch (e) {
     alert(e?.response?.data?.message || e.message || "Create failed")
   }
+}
+
+const formatJobLocation = (job) => {
+  const type = job?.locationType || "remote"
+  const country = job?.locationLabel || "Unknown country"
+  return `${type} • ${country}`
 }
 
 // ✅ 2 états UI seulement : published => vert, sinon rouge
@@ -331,7 +341,7 @@ const onDeleteApplicationFromJob = async (job, app) => {
 
             <p class="sub">
               <span class="dot-sep">•</span>
-              {{ job.locationType }}<span v-if="job.locationLabel"> ({{ job.locationLabel }})</span>
+              {{ formatJobLocation(job) }}
               <span class="dot-sep">•</span>
               {{ job.postedLabel || "—" }}
             </p>
@@ -432,8 +442,13 @@ const onDeleteApplicationFromJob = async (job, app) => {
             </label>
 
             <label class="field">
-              <span>Location label (optional)</span>
-              <input v-model="form.locationLabel" type="text" placeholder="e.g. Paris" />
+              <span>Country</span>
+              <select v-model="form.locationLabel" required>
+                <option disabled value="">Select a country</option>
+                <option v-for="country in countries" :key="country.code" :value="country.label">
+                  {{ country.label }}
+                </option>
+              </select>
             </label>
           </div>
 
@@ -462,7 +477,7 @@ const onDeleteApplicationFromJob = async (job, app) => {
             <label class="field">
               <span>Tags</span>
               <input v-model="form.tagsInput" type="text" placeholder="Solidity, React, Web3" />
-              <small>Comma-separated.</small>
+              <small>Use commas to separate tags (example: Solidity, React, Web3).</small>
             </label>
           </div>
 
@@ -473,7 +488,11 @@ const onDeleteApplicationFromJob = async (job, app) => {
 
           <div class="form-actions">
             <button class="ghost-btn" type="button" @click="closeForm">Cancel</button>
-            <button class="primary-btn" type="submit" :disabled="saving || !form.title || !form.companyName">
+            <button
+              class="primary-btn"
+              type="submit"
+              :disabled="saving || !form.title || !form.companyName || !form.locationLabel"
+            >
               Create
             </button>
           </div>

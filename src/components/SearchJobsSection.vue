@@ -2,28 +2,76 @@
 import { computed, onMounted, ref, watch } from "vue"
 import { useJobsStore } from "../store/jobs"
 import { useAuthStore } from "../store/auth"
+import { COUNTRY_OPTIONS } from "../data/countries"
 
 const jobsStore = useJobsStore()
 const auth = useAuthStore()
 
 const search = ref("")
+const selectedCountry = ref("")
+const selectedLocationType = ref("")
+const selectedJobType = ref("")
+const countries = COUNTRY_OPTIONS
+
+const locationTypeOptions = [
+  { value: "", label: "All location types" },
+  { value: "remote", label: "Remote" },
+  { value: "hybrid", label: "Hybrid" },
+  { value: "onsite", label: "Onsite" },
+]
+
+const jobTypeOptions = [
+  { value: "", label: "All job types" },
+  { value: "full_time", label: "Full-time" },
+  { value: "part_time", label: "Part-time" },
+  { value: "contract", label: "Contract" },
+  { value: "freelance", label: "Freelance" },
+]
 
 const jobs = computed(() => jobsStore.jobs)
 const loading = computed(() => jobsStore.loadingJobs)
 const error = computed(() => jobsStore.error)
 const saving = computed(() => jobsStore.saving)
 
+const fetchJobsWithFilters = async () => {
+  await jobsStore.fetchJobs({
+    q: search.value,
+    filters: {
+      locationLabel: selectedCountry.value || undefined,
+      locationType: selectedLocationType.value || undefined,
+      jobType: selectedJobType.value || undefined,
+    },
+  })
+}
+
 onMounted(async () => {
-  await jobsStore.fetchJobs({ q: "" })
+  await fetchJobsWithFilters()
 })
 
 let t = null
-watch(search, (val) => {
+watch([search, selectedCountry, selectedLocationType, selectedJobType], () => {
   clearTimeout(t)
   t = setTimeout(() => {
-    jobsStore.fetchJobs({ q: val })
+    fetchJobsWithFilters()
   }, 250)
 })
+
+const filteredJobs = computed(() =>
+  jobs.value.filter((job) => {
+    if (selectedCountry.value && (job.locationLabel || "") !== selectedCountry.value) return false
+    if (selectedLocationType.value && (job.locationType || "") !== selectedLocationType.value) return false
+    if (selectedJobType.value && (job.jobType || "") !== selectedJobType.value) return false
+    return true
+  }),
+)
+
+const resetFilters = async () => {
+  search.value = ""
+  selectedCountry.value = ""
+  selectedLocationType.value = ""
+  selectedJobType.value = ""
+  await fetchJobsWithFilters()
+}
 
 const canApply = (job) => {
   // si backend renvoie ownerId, on bloque
@@ -39,6 +87,12 @@ const onApply = async (job) => {
     alert(e.message || "Apply failed")
   }
 }
+
+const formatJobLocation = (job) => {
+  const type = job?.locationType || "remote"
+  const country = job?.locationLabel || "Unknown country"
+  return `${type} • ${country}`
+}
 </script>
 
 <template>
@@ -47,26 +101,43 @@ const onApply = async (job) => {
       <div>
         <p class="eyebrow">Find a job</p>
         <h2>Explore jobs</h2>
-        <p class="muted">Search by title, company, tags…</p>
+        <p class="muted">Search by text, then filter by country, location type, and job type.</p>
       </div>
 
-      <div class="search">
+      <div class="search-grid">
         <input v-model="search" type="search" placeholder="Search by title, stack, company..." />
+        <select v-model="selectedCountry" aria-label="Filter by country">
+          <option value="">All countries</option>
+          <option v-for="country in countries" :key="country.code" :value="country.label">
+            {{ country.label }}
+          </option>
+        </select>
+        <select v-model="selectedLocationType" aria-label="Filter by location type">
+          <option v-for="opt in locationTypeOptions" :key="opt.value || 'all-location'" :value="opt.value">
+            {{ opt.label }}
+          </option>
+        </select>
+        <select v-model="selectedJobType" aria-label="Filter by job type">
+          <option v-for="opt in jobTypeOptions" :key="opt.value || 'all-job'" :value="opt.value">
+            {{ opt.label }}
+          </option>
+        </select>
+        <button class="reset-btn" type="button" @click="resetFilters">Reset filters</button>
       </div>
     </div>
 
     <p v-if="error" class="error">{{ error }}</p>
     <p v-if="loading" class="muted">Loading...</p>
 
-    <div v-if="jobs.length" class="grid">
-      <article v-for="job in jobs" :key="job.id" class="card">
+    <div v-if="filteredJobs.length" class="grid">
+      <article v-for="job in filteredJobs" :key="job.id" class="card">
         <div class="card-head">
           <div class="info">
             <h3>{{ job.title }}</h3>
             <p class="muted">{{ job.companyName }}</p>
             <p class="sub">
               <span class="dot-sep">•</span>
-              {{ job.locationType }}<span v-if="job.locationLabel"> ({{ job.locationLabel }})</span>
+              {{ formatJobLocation(job) }}
               <span class="dot-sep">•</span>
               {{ job.postedLabel || "—" }}
             </p>
@@ -98,7 +169,7 @@ const onApply = async (job) => {
       </article>
     </div>
 
-    <p v-else-if="!loading" class="empty">No jobs yet.</p>
+    <p v-else-if="!loading" class="empty">No jobs match these filters.</p>
   </section>
 </template>
 
@@ -134,19 +205,46 @@ h2 {
   font-weight: 800;
 }
 
-.search input {
+.search-grid {
+  display: grid;
+  grid-template-columns: minmax(240px, 1.4fr) repeat(3, minmax(180px, 1fr)) auto;
+  gap: 10px;
+}
+
+.search-grid input,
+.search-grid select {
   background: rgba(8, 12, 24, 0.6);
   border: 1px solid rgba(120, 90, 255, 0.25);
   border-radius: 12px;
   padding: 10px 12px;
-  min-width: 240px;
   color: #e8f3ff;
 }
 
-.search input:focus {
+.search-grid input:focus,
+.search-grid select:focus {
   outline: none;
   border-color: rgba(120, 90, 255, 0.5);
   box-shadow: 0 0 0 1px rgba(120, 90, 255, 0.25);
+}
+
+.search-grid select option {
+  background: #0a0f24;
+  color: #e8f3ff;
+}
+
+.reset-btn {
+  border: 1px solid rgba(120, 90, 255, 0.35);
+  background: rgba(120, 90, 255, 0.12);
+  color: #e8f3ff;
+  border-radius: 12px;
+  padding: 10px 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.reset-btn:hover {
+  border-color: rgba(120, 90, 255, 0.5);
+  background: rgba(120, 90, 255, 0.18);
 }
 
 .grid {
@@ -381,6 +479,10 @@ h2 {
 @media (max-width: 680px) {
   .panel-header {
     align-items: flex-start;
+  }
+
+  .search-grid {
+    grid-template-columns: 1fr;
   }
 
   .footer {
