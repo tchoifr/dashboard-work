@@ -7,6 +7,7 @@ import { deleteConversation as deleteConversationApi } from "../services/convers
 import { useProfileStore } from "../store/profile"
 import { useWalletConfigStore } from "../store/walletConfig"
 import { useContractsStore } from "../store/contracts"
+import { useJobsStore } from "../store/jobs"
 import { getConnection } from "../solana/connection"
 import { connectPhantom, getPhantomProvider } from "../solana/phantom"
 import { getUsdcBalance } from "../solana/usdc"
@@ -86,6 +87,10 @@ const contractsStore = useContractsStore()
 const activeContracts = computed(() => contractsStore.myContracts)
 const visibleContracts = computed(() =>
   activeContracts.value.length ? activeContracts.value : contractsStore.items,
+)
+const jobsStore = useJobsStore()
+const totalApplicantsOnMyJobs = computed(() =>
+  (jobsStore.myJobs || []).reduce((sum, job) => sum + Number(job?.applicantsCount || 0), 0),
 )
 
 // ==========================
@@ -214,6 +219,15 @@ async function loadMyContracts() {
     await contractsStore.fetchAll()
   } catch (e) {
     console.error("Load contracts failed", e)
+  }
+}
+
+async function loadMyJobsSummary() {
+  if (!auth.isAuthenticated) return
+  try {
+    await jobsStore.fetchMine()
+  } catch (e) {
+    console.error("Load jobs summary failed", e)
   }
 }
 
@@ -434,6 +448,7 @@ watch(
       loadWalletConfig()
       refreshWalletGuard()
       loadMyContracts()
+      loadMyJobsSummary()
       loadMessagingData()
       loadProfile()
     } else {
@@ -453,6 +468,7 @@ onMounted(() => {
     loadWalletConfig()
     refreshWalletGuard()
     loadMyContracts()
+    loadMyJobsSummary()
     loadMessagingData()
     loadProfile()
   }
@@ -559,6 +575,8 @@ watch(
       :contracts="visibleContracts"
       :conversations="messageConversations"
       :wallet="overviewWallet"
+      :applicants-count="totalApplicantsOnMyJobs"
+      :unread-messages="unreadCount"
       @view-all-wallet="handleOverviewViewAllWallet"
       @view-all-transactions="handleOverviewViewAllTransactions"
       @view-contract="openContractPreview"

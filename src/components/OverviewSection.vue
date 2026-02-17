@@ -14,6 +14,14 @@ const props = defineProps({
     type: Object,
     default: () => ({}),
   },
+  applicantsCount: {
+    type: Number,
+    default: 0,
+  },
+  unreadMessages: {
+    type: Number,
+    default: 0,
+  },
 })
 const emit = defineEmits(["view-all-wallet", "view-all-transactions", "view-contract"])
 
@@ -340,22 +348,19 @@ const pendingInvoices = computed(() => pendingInvoicesCount.value)
 
       <article class="panel panel-stats compact">
         <header class="panel-header">
-          <h2>Stats</h2>
+          <h2>Inbox & Hiring</h2>
         </header>
 
         <div class="stats-row compact-row">
           <div class="stat-item">
-            <p class="stat-label">Earnings</p>
-            <p class="stat-value">{{ totalEarnings }}</p>
-            <p class="stat-sub up">{{ earningsDelta }} this month</p>
+            <p class="stat-label">Applicants</p>
+            <p class="stat-value">{{ props.applicantsCount }}</p>
+            <p class="stat-sub">On my job posts</p>
           </div>
           <div class="stat-item">
-            <p class="stat-value">{{ activeContracts }}</p>
-            <p class="stat-sub">Active Contracts</p>
-          </div>
-          <div class="stat-item">
-            <p class="stat-value">{{ pendingInvoices }}</p>
-            <p class="stat-sub">Pending Invoices</p>
+            <p class="stat-label">Unread</p>
+            <p class="stat-value">{{ props.unreadMessages }}</p>
+            <p class="stat-sub">Messages not read</p>
           </div>
         </div>
       </article>
@@ -709,7 +714,7 @@ const pendingInvoices = computed(() => pendingInvoicesCount.value)
 }
 
 .panel-stats.compact .compact-row {
-  grid-template-columns: 1.2fr 1fr 1fr;
+  grid-template-columns: 1fr 1fr;
 }
 
 @media (max-width: 1100px) {

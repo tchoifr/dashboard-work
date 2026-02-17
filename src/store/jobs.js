@@ -28,38 +28,43 @@ const toIsoLabel = (iso) => {
 
 const normalizeJob = (job) => {
   if (!job) return null
+  const source =
+    (job?.job && typeof job.job === "object" ? job.job : null) ||
+    (job?.item && typeof job.item === "object" ? job.item : null) ||
+    job
+  if (!source || typeof source !== "object") return null
 
   const applicantsCount =
-    typeof job.applicantsCount === "number"
-      ? job.applicantsCount
-      : typeof job.applicationsCount === "number"
-        ? job.applicationsCount
-      : Array.isArray(job.applicants)
-        ? job.applicants.length
-        : Array.isArray(job.applications)
-          ? job.applications.length
+    typeof source.applicantsCount === "number"
+      ? source.applicantsCount
+      : typeof source.applicationsCount === "number"
+        ? source.applicationsCount
+      : Array.isArray(source.applicants)
+        ? source.applicants.length
+        : Array.isArray(source.applications)
+          ? source.applications.length
         : 0
 
   return {
-    id: job.id,
-    title: job.title || "",
-    companyName: job.companyName || "",
-    locationType: job.locationType || "remote",
-    locationLabel: job.locationLabel ?? null,
-    jobType: job.jobType || "contract",
-    budgetLabel: job.budgetLabel ?? null,
-    description: job.description ?? "",
-    tags: Array.isArray(job.tags) ? job.tags : [],
+    id: source.id ?? source.jobId ?? source.job_id ?? null,
+    title: source.title || "",
+    companyName: source.companyName || "",
+    locationType: source.locationType || "remote",
+    locationLabel: source.locationLabel ?? null,
+    jobType: source.jobType || "contract",
+    budgetLabel: source.budgetLabel ?? null,
+    description: source.description ?? "",
+    tags: Array.isArray(source.tags) ? source.tags : [],
 
-    status: job.status ?? null,
-    rejectedReason: job.rejectedReason ?? null,
-    createdAt: job.createdAt ?? null,
-    publishedAt: job.publishedAt ?? null,
+    status: source.status ?? null,
+    rejectedReason: source.rejectedReason ?? null,
+    createdAt: source.createdAt ?? null,
+    publishedAt: source.publishedAt ?? null,
 
-    postedLabel: toIsoLabel(job.publishedAt || job.createdAt),
-    isPublic: job.status === "published",
+    postedLabel: toIsoLabel(source.publishedAt || source.createdAt),
+    isPublic: source.status === "published",
     applicantsCount,
-    ownerId: job.ownerId || job.owner?.uuid || null,
+    ownerId: source.ownerId || source.owner?.uuid || null,
   }
 }
 
@@ -377,12 +382,25 @@ export const useJobsStore = defineStore("jobs", {
 
       this.saving = true
       this.error = null
+      const existing = this.myJobs.find((j) => j.id === id)
+      const snapshot = existing ? { ...existing } : null
+
+      // Optimistic UI: reflect publish immediately
+      if (existing) {
+        const optimistic = normalizeJob({
+          ...existing,
+          status: "published",
+          publishedAt: existing.publishedAt || new Date().toISOString(),
+        })
+        if (optimistic) this.upsertMyJob(optimistic)
+      }
+
       try {
         const data = await publishJobApi(id)
 
         // Certaines API renvoient 204/empty body -> on met à jour localement
         let updated = normalizeJob(data)
-        if (!updated) {
+        if (!updated?.id) {
           const existing = this.myJobs.find((j) => j.id === id)
           if (existing) {
             updated = normalizeJob({
@@ -393,9 +411,18 @@ export const useJobsStore = defineStore("jobs", {
           }
         }
 
-        if (updated) this.upsertMyJob(updated)
+        // Some backends return stale status right after publish: force local final status on success.
+        if (updated) {
+          updated = normalizeJob({
+            ...updated,
+            status: "published",
+            publishedAt: updated.publishedAt || new Date().toISOString(),
+          })
+          this.upsertMyJob(updated)
+        }
         return updated
       } catch (e) {
+        if (snapshot) this.upsertMyJob(snapshot)
         this.error = e?.response?.data?.message || e.message || "Failed to publish job"
         console.error("jobs.publishJob failed", e?.response?.status, e?.response?.data || e)
         throw e
@@ -410,12 +437,25 @@ export const useJobsStore = defineStore("jobs", {
 
       this.saving = true
       this.error = null
+      const existing = this.myJobs.find((j) => j.id === id)
+      const snapshot = existing ? { ...existing } : null
+
+      // Optimistic UI: reflect withdraw immediately
+      if (existing) {
+        const optimistic = normalizeJob({
+          ...existing,
+          status: "draft",
+          publishedAt: null,
+        })
+        if (optimistic) this.upsertMyJob(optimistic)
+      }
+
       try {
         const data = await withdrawJobApi(id)
 
         // Même logique que publish: fallback si réponse vide
         let updated = normalizeJob(data)
-        if (!updated) {
+        if (!updated?.id) {
           const existing = this.myJobs.find((j) => j.id === id)
           if (existing) {
             updated = normalizeJob({
@@ -426,9 +466,17 @@ export const useJobsStore = defineStore("jobs", {
           }
         }
 
-        if (updated) this.upsertMyJob(updated)
+        if (updated) {
+          updated = normalizeJob({
+            ...updated,
+            status: "draft",
+            publishedAt: null,
+          })
+          this.upsertMyJob(updated)
+        }
         return updated
       } catch (e) {
+        if (snapshot) this.upsertMyJob(snapshot)
         this.error = e?.response?.data?.message || e.message || "Failed to withdraw job"
         console.error("jobs.withdrawJob failed", e?.response?.status, e?.response?.data || e)
         throw e
