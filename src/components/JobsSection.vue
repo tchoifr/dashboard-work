@@ -148,17 +148,6 @@ const statusPillClass = (status) => {
   return "badge status-applied"
 }
 
-const toProfileList = (value) => (Array.isArray(value) ? value.filter(Boolean) : [])
-
-const openReceivedApplications = async () => {
-  showReceivedModal.value = true
-  try {
-    await jobsStore.fetchReceivedApplications(receivedStatusFilter.value || null)
-  } catch {
-    // handled in store state
-  }
-}
-
 const closeReceivedApplications = () => {
   showReceivedModal.value = false
 }
@@ -312,10 +301,6 @@ const onDeleteApplicationFromJob = async (job, app) => {
       <button class="primary-btn" type="button" @click="openForm">
         <span class="plus">+</span>
         Create Job
-      </button>
-      <button class="ghost-btn" type="button" @click="openReceivedApplications">
-        Applications received
-        <span v-if="receivedState.total > 0">({{ receivedState.total }})</span>
       </button>
     </div>
 

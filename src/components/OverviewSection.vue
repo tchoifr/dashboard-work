@@ -488,6 +488,7 @@ const pendingInvoices = computed(() => pendingInvoicesCount.value)
   grid-template-columns: minmax(0, 1.5fr) auto auto;
   gap: 12px;
   align-items: center;
+  margin-top: 10px;
 }
 
 .wallet-row.clickable {

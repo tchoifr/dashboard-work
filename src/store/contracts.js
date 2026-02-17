@@ -4,39 +4,102 @@ import { useAuthStore } from "./auth"
 
 const normalizeContract = (raw = {}) => {
   const contract = raw?.contract && typeof raw.contract === "object" ? raw.contract : raw
+  const root = raw && typeof raw === "object" ? raw : {}
+  const pickFromContractOrRoot = (...keys) => {
+    for (const key of keys) {
+      const fromContract = contract?.[key]
+      if (fromContract !== null && fromContract !== undefined && fromContract !== "") return fromContract
+      const fromRoot = root?.[key]
+      if (fromRoot !== null && fromRoot !== undefined && fromRoot !== "") return fromRoot
+    }
+    return null
+  }
+
   const onchain = contract?.onchain || {}
   const amounts = contract?.amounts || {}
+  const timeline = contract?.timeline || {}
+  const period = contract?.period || {}
   const employerObj = contract?.employer || {}
   const freelancerObj = contract?.freelancer || {}
 
   const employerUserUuid =
-    contract.employerUserUuid ||
-    contract.employer_user_uuid ||
+    pickFromContractOrRoot("employerUserUuid", "employer_user_uuid") ||
     employerObj.uuid ||
     null
 
   const freelancerUserUuid =
-    contract.freelancerUserUuid ||
-    contract.freelancer_user_uuid ||
+    pickFromContractOrRoot("freelancerUserUuid", "freelancer_user_uuid") ||
     freelancerObj.uuid ||
     null
 
   return {
+    ...root,
     ...contract,
-    uuid: contract.uuid || contract.contract_uuid || contract.id || null,
-    status: contract.status || "DRAFT",
-    title: contract.title || contract.name || contract.jobTitle || contract.job_title || "",
+    uuid: pickFromContractOrRoot("uuid", "contract_uuid", "id"),
+    status: pickFromContractOrRoot("status") || "DRAFT",
+    title:
+      pickFromContractOrRoot(
+        "title",
+        "contractTitle",
+        "contract_title",
+        "name",
+        "jobTitle",
+        "job_title",
+      ) ||
+      "",
     amountUsdc:
-      contract.amountUsdc ??
-      contract.amount_usdc ??
-      contract.amountTotalUsdc ??
-      contract.amount_total_usdc ??
+      pickFromContractOrRoot(
+        "amountUsdc",
+        "amount_usdc",
+        "amountTotalUsdc",
+        "amount_total_usdc",
+        "totalAmountUsdc",
+        "total_amount_usdc",
+        "usdcAmount",
+        "usdc_amount",
+      ) ??
       amounts.totalUsdc ??
       amounts.total_usdc ??
+      amounts.amountUsdc ??
+      amounts.amount_usdc ??
       contract.amount ??
       null,
-    startAt: contract.startAt || contract.start_at || contract.starts_at || null,
-    endAt: contract.endAt || contract.end_at || contract.ends_at || null,
+    startAt:
+      pickFromContractOrRoot(
+        "startAt",
+        "start_at",
+        "startDate",
+        "start_date",
+        "startsAt",
+        "starts_at",
+        "periodStart",
+        "period_start",
+      ) ||
+      period.start ||
+      period.startAt ||
+      pickFromContractOrRoot("createdAt", "created_at") ||
+      timeline.start ||
+      null,
+    endAt:
+      pickFromContractOrRoot(
+        "findPeriodAt",
+        "find_period_at",
+        "endAt",
+        "end_at",
+        "endDate",
+        "end_date",
+        "endsAt",
+        "ends_at",
+        "periodEnd",
+        "period_end",
+      ) ||
+      period.end ||
+      period.endAt ||
+      timeline.end ||
+      null,
+    checkpoints:
+      pickFromContractOrRoot("checkpoints", "validationCheckpoints", "validation_checkpoints") ||
+      null,
     contractId32Hex:
       contract.contractId32Hex ||
       contract.contract_id32_hex ||

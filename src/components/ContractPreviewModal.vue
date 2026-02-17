@@ -21,6 +21,27 @@ const props = defineProps({
 
 const emit = defineEmits(["close", "updated"])
 const close = () => emit("close")
+const isGeneratedContractTitle = (value) =>
+  /^contract\s+[0-9a-f-]{16,}$/i.test(String(value || "").trim())
+
+const contractNumber = computed(() => {
+  const id = props.contract?.uuid || props.contract?.id || ""
+  return id ? `Contract ${id}` : "Contract"
+})
+
+const contractTitle = computed(() => {
+  const raw =
+    props.contract?.title ||
+    props.contract?.contractTitle ||
+    props.contract?.contract_title ||
+    props.contract?.name ||
+    props.contract?.jobTitle ||
+    props.contract?.job_title ||
+    ""
+  const title = String(raw).trim()
+  if (!title || isGeneratedContractTitle(title)) return "-"
+  return title
+})
 
 const auth = useAuthStore()
 const loading = ref(false)
@@ -90,7 +111,7 @@ const handleDispute = createHandleDispute({
     <header class="modal-head">
       <div>
         <p class="eyebrow">Contract Preview</p>
-        <h3>{{ contract.title || contract.name || `Contract ${contract.uuid || ""}` }}</h3>
+        <h3>{{ contractNumber }}</h3>
         <p class="muted">
           {{ contract?.freelancer?.username || contract?.freelancer?.walletAddress || " " }}
         </p>
@@ -99,6 +120,11 @@ const handleDispute = createHandleDispute({
     </header>
 
     <div class="grid">
+      <article class="info full">
+        <p class="label">Title</p>
+        <p class="value">{{ contractTitle }}</p>
+      </article>
+
       <article class="info">
         <p class="label">Amount</p>
         <p class="value">{{ humanAmount }}</p>

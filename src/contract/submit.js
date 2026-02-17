@@ -214,11 +214,28 @@ export async function submitForm({
     txStatus.value = "Création du draft...";
 
     const amountTotalUsdc = Number(amountUsdcUi).toFixed(6);
+    const startAtIso = form.timeline?.start ? `${form.timeline.start}T00:00:00` : null;
+    const endAtIso = form.timeline?.end ? `${form.timeline.end}T23:59:59` : null;
+    const checkpoints = String(form.checkpoints || "")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
     const draft = await createContract({
       freelancerUserUuid: freelancerUuid,
       amountTotalUsdc,
       title: String(form.title || "").trim(),
+      name: String(form.title || "").trim(),
       description: String(form.description || "").trim(),
+      checkpoints,
+      validationCheckpoints: checkpoints,
+      createdAt: startAtIso,
+      created_at: startAtIso,
+      findPeriodAt: endAtIso,
+      find_period_at: endAtIso,
+      startAt: startAtIso,
+      endAt: endAtIso,
+      start_at: startAtIso,
+      end_at: endAtIso,
       jobId: form.jobId ?? null,
     });
 
@@ -291,8 +308,34 @@ export async function submitForm({
       uuid: draftContract.uuid || fundedContract.uuid || contractUuid,
       title: draftContract.title || String(form.title || "").trim(),
       description: draftContract.description || String(form.description || "").trim(),
-      startAt: draftContract.startAt || form.timeline?.start || null,
-      endAt: draftContract.endAt || form.timeline?.end || null,
+      checkpoints: draftContract.checkpoints || checkpoints,
+      amountUsdc:
+        draftContract.amountUsdc ||
+        draftContract.amount_usdc ||
+        fundedContract.amountUsdc ||
+        fundedContract.amount_usdc ||
+        amountTotalUsdc,
+      createdAt: draftContract.createdAt || draftContract.created_at || startAtIso,
+      findPeriodAt:
+        draftContract.findPeriodAt ||
+        draftContract.find_period_at ||
+        fundedContract.findPeriodAt ||
+        fundedContract.find_period_at ||
+        endAtIso,
+      startAt:
+        draftContract.startAt ||
+        draftContract.start_at ||
+        draftContract.createdAt ||
+        draftContract.created_at ||
+        form.timeline?.start ||
+        null,
+      endAt:
+        draftContract.endAt ||
+        draftContract.end_at ||
+        draftContract.findPeriodAt ||
+        draftContract.find_period_at ||
+        form.timeline?.end ||
+        null,
       contractIdU64:
         draftContract.contractIdU64 ||
         draftContract.contract_id_u64 ||

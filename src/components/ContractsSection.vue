@@ -9,8 +9,35 @@ const emit = defineEmits(['create-contract', 'view-contract'])
 
 const openContract = () => emit('create-contract')
 
+const readRawTitle = (contract) =>
+  contract.title ||
+  contract.contractTitle ||
+  contract.contract_title ||
+  contract.name ||
+  contract.jobTitle ||
+  contract.job_title ||
+  ""
+
+const isGeneratedContractTitle = (value) =>
+  /^contract\s+[0-9a-f-]{16,}$/i.test(String(value || "").trim())
+
+const toNumber = (value) => {
+  if (value == null) return null
+  if (typeof value === "number") return Number.isFinite(value) ? value : null
+  const raw = String(value).trim()
+  if (!raw) return null
+  const normalized = raw.replace(/\s+/g, "").replace(/[^\d,.-]/g, "").replace(/,/g, ".")
+  const parsed = Number(normalized)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
 const contractTitle = (contract) =>
-  contract.title || contract.name || contract.jobTitle || contract.job_title || `Contract ${contract.uuid || ''}`.trim()
+  (() => {
+    const title = String(readRawTitle(contract) || "").trim()
+    if (!title || isGeneratedContractTitle(title)) return "Untitled contract"
+    return title
+  })()
+
 const contractClient = (contract) =>
   contract.client ||
   contract.employerLabel ||
@@ -20,23 +47,76 @@ const contractClient = (contract) =>
   contract.freelancer?.wallet_address ||
   contract.employer?.username ||
   ''
+
 const contractAmount = (contract) => {
-  const amount =
+  const value = toNumber(
     contract.amountUsdc ??
     contract.amount_usdc ??
     contract.amountTotalUsdc ??
     contract.amount_total_usdc ??
+    contract.totalAmountUsdc ??
+    contract.total_amount_usdc ??
+    contract.usdcAmount ??
+    contract.usdc_amount ??
     contract.amounts?.totalUsdc ??
     contract.amounts?.total_usdc ??
+    contract.amounts?.amountUsdc ??
+    contract.amounts?.amount_usdc ??
     contract.amount
-  if (amount == null || Number.isNaN(Number(amount))) return ''
-  return `${Number(amount).toFixed(2)} USDC`
+  )
+  if (value == null) return "-"
+  return `${value.toFixed(2)} USDC`
 }
+
+const contractStart = (contract) =>
+  contract.startAt ||
+  contract.start_at ||
+  contract.startDate ||
+  contract.start_date ||
+  contract.startsAt ||
+  contract.starts_at ||
+  contract.periodStart ||
+  contract.period_start ||
+  contract.period?.start ||
+  contract.period?.startAt ||
+  contract.createdAt ||
+  contract.created_at ||
+  contract.timeline?.start ||
+  null
+
+const contractEnd = (contract) =>
+  contract.findPeriodAt ||
+  contract.find_period_at ||
+  contract.endAt ||
+  contract.end_at ||
+  contract.endDate ||
+  contract.end_date ||
+  contract.endsAt ||
+  contract.ends_at ||
+  contract.periodEnd ||
+  contract.period_end ||
+  contract.period?.end ||
+  contract.period?.endAt ||
+  contract.timeline?.end ||
+  null
+
+const formatDate = (value) => {
+  if (!value) return null
+  const raw = String(value).trim()
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(raw)
+  if (match) return `${match[1]}-${match[2]}-${match[3]}`
+  const date = new Date(raw)
+  if (Number.isNaN(date.getTime())) return null
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, "0")
+  const d = String(date.getDate()).padStart(2, "0")
+  return `${y}-${m}-${d}`
+}
+
 const contractPeriod = (contract) => {
-  if (contract.period) return contract.period
-  const start = contract.startAt || contract.start_at || contract.starts_at || contract.timeline?.start
-  const end = contract.endAt || contract.end_at || contract.ends_at || contract.timeline?.end
-  if (!start && !end) return ''
+  const start = formatDate(contractStart(contract))
+  const end = formatDate(contractEnd(contract))
+  if (!start && !end) return "-"
   return `${start || "?"} -> ${end || "?"}`
 }
 
@@ -77,9 +157,7 @@ const viewContract = (contract) => emit('view-contract', contract)
           </div>
           <div class="info">
             <h3>{{ contractTitle(contract) }}</h3>
-            <p class="muted">{{ contractClient(contract) }}</p>
           </div>
-          <span class="badge" :class="contract.status">{{ contract.status }}</span>
         </div>
 
         <div class="meta">

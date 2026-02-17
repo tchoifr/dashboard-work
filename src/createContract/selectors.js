@@ -43,8 +43,40 @@ export function useContractPreviewSelectors(props) {
   const programId = computed(() => props.programId || pick(["programId", "program_id"]))
 
   /** dates ISO renvoyées par ton serializer */
-  const startAt = computed(() => pick(["startAt", "start_at"]))
-  const endAt = computed(() => pick(["endAt", "end_at"]))
+  const startAt = computed(() =>
+    pick([
+      "startAt",
+      "start_at",
+      "startDate",
+      "start_date",
+      "startsAt",
+      "starts_at",
+      "periodStart",
+      "period_start",
+      "createdAt",
+      "created_at",
+    ]) ||
+    props.contract?.period?.start ||
+    props.contract?.period?.startAt ||
+    props.contract?.timeline?.start
+  )
+  const endAt = computed(() =>
+    pick([
+      "findPeriodAt",
+      "find_period_at",
+      "endAt",
+      "end_at",
+      "endDate",
+      "end_date",
+      "endsAt",
+      "ends_at",
+      "periodEnd",
+      "period_end",
+    ]) ||
+    props.contract?.period?.end ||
+    props.contract?.period?.endAt ||
+    props.contract?.timeline?.end
+  )
   const createdAt = computed(() => pick(["createdAt", "created_at"]))
 
   return {

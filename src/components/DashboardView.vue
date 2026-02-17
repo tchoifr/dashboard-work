@@ -10,6 +10,7 @@ import { useContractsStore } from "../store/contracts"
 import { getConnection } from "../solana/connection"
 import { connectPhantom, getPhantomProvider } from "../solana/phantom"
 import { getUsdcBalance } from "../solana/usdc"
+import byhnexLogo from "../assets/byhnexLogo.png"
 
 // SECTIONS
 import OverviewSection from "./OverviewSection.vue"
@@ -483,11 +484,21 @@ watch(
   <div v-else class="page">
     <!-- HEADER -->
     <header class="top-bar">
-      <div class="work-pill">WORK</div>
+      <div class="work-pill">
+        <img :src="byhnexLogo" alt="Byhnex logo" class="work-logo" />
+        <span class="work-text">Byhnex</span>
+      </div>
 
       <div class="top-actions">
         <button class="logout-btn" @click="handleLogout">Deconnexion</button>
-        <div class="profile">
+        <div
+          class="profile profile-clickable"
+          role="button"
+          tabindex="0"
+          @click="activeTab = 'Profile'"
+          @keydown.enter.prevent="activeTab = 'Profile'"
+          @keydown.space.prevent="activeTab = 'Profile'"
+        >
           {{ profile.username?.substring(0, 2).toUpperCase() }}
         </div>
       </div>
@@ -676,20 +687,32 @@ watch(
 .work-pill {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  padding: 10px 16px;
-  min-width: 72px;
+  gap: 10px;
+  padding: 8px 12px;
+  min-width: 120px;
   border-radius: 14px;
   background: radial-gradient(circle at 30% 30%, rgba(120, 90, 255, 0.5), rgba(0, 198, 255, 0.35)),
     linear-gradient(145deg, rgba(24, 33, 64, 0.9), rgba(18, 26, 54, 0.96));
   color: #eef2ff;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  font-size: 12px;
   box-shadow:
     0 14px 32px rgba(0, 0, 0, 0.35),
     0 0 12px rgba(120, 90, 255, 0.4),
     inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+.work-logo {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  display: block;
+}
+
+.work-text {
+  color: #eef2ff;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  font-size: 12px;
+  text-transform: uppercase;
 }
 
 .profile {
@@ -703,6 +726,10 @@ watch(
   font-weight: 700;
   letter-spacing: 0.5px;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
+}
+
+.profile-clickable {
+  cursor: pointer;
 }
 
 .wallet-guard {
