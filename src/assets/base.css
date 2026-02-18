@@ -139,3 +139,16 @@ label::after {
 .wallet-guard-refresh:hover {
   filter: brightness(1.08);
 }
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  margin-bottom: 12px;
+  background: linear-gradient(160deg, var(--panel) 0%, var(--panel-strong) 100%) !important;
+  border: 1px solid var(--border-soft) !important;
+  box-shadow: var(--panel-shadow) !important;
+}

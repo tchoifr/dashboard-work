@@ -257,14 +257,6 @@ h3 {
     0 0 20px rgba(120, 90, 255, 0.22);
 }
 
-.panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 16px;
-  gap: 12px;
-}
-
 .count {
   color: #cfd8f0;
   font-size: 13px;

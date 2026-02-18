@@ -5,9 +5,21 @@ import { useAuthStore } from "../store/auth"
 import {
   getContract as getContractApi,
   openDispute as openDisputeApi,
+  releaseContract as releaseContractApi,
   resolveDispute as resolveDisputeApi,
   voteDispute as voteDisputeApi,
 } from "../services/contractsApi"
+import { ensurePhantom } from "../contract/phantom"
+import { getConnection } from "../solana/connection"
+import { PublicKey, Transaction } from "@solana/web3.js"
+import {
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+  TOKEN_PROGRAM_ID,
+  createAssociatedTokenAccountInstruction,
+  createTransferInstruction,
+  getAssociatedTokenAddress,
+  getMint,
+} from "@solana/spl-token"
 
 import { useContractPreviewSelectors } from "../createContract/selectors"
 import { useContractPreviewLabels } from "../createContract/formatters"
@@ -18,6 +30,7 @@ const props = defineProps({
   contract: { type: Object, required: true },
   adminReadonly: { type: Boolean, default: false },
   programId: String,
+  usdcMint: String,
   rpcUrl: String,
   admin1: String,
   admin2: String,
@@ -54,6 +67,8 @@ const contractTitle = computed(() => {
 const auth = useAuthStore()
 const loading = ref(false)
 const txStatus = ref("")
+const walletAddress = ref("")
+const validatedNow = ref(false)
 const disputeLoading = ref(false)
 const disputeReason = ref("")
 const resolveTxSig = ref("")
@@ -168,6 +183,10 @@ const disputeStatus = computed(() => String(disputeState.value?.status || "").to
 const isDisputeOpen = computed(
   () => hasDispute.value && !["RESOLVED", "CLOSED", "CANCELLED"].includes(disputeStatus.value),
 )
+const isContractLocked = computed(() => {
+  const finalStatuses = new Set(["RELEASED", "COMPLETED", "PAID", "CLOSED", "CANCELLED"])
+  return validatedNow.value || finalStatuses.has(status.value)
+})
 const canResolve = computed(() => Boolean(voteState.value?.canResolve || disputeState.value?.canResolve))
 const myVote = computed(() => voteState.value?.myVote || disputeState.value?.myVote || null)
 const resolutionType = computed(
@@ -184,10 +203,147 @@ const handleDispute = () =>
     return true
   })
 
-const handleValidateContract = () => {
-  txStatus.value = "Contract validated."
-  emit("updated")
+const parseAmountToBaseUnits = (rawValue, decimals) => {
+  if (rawValue == null) return 0n
+  const raw = String(rawValue).trim().replace(/\s+/g, "")
+  if (!raw) return 0n
+  if (/^\d+$/.test(raw)) return BigInt(raw)
+
+  const normalized = raw.includes(",") && !raw.includes(".") ? raw.replace(",", ".") : raw
+  if (!/^\d+(\.\d+)?$/.test(normalized)) return 0n
+  const [wholeRaw, fracRaw = ""] = normalized.split(".")
+  const whole = BigInt(wholeRaw || "0")
+  const frac = (fracRaw + "0".repeat(decimals)).slice(0, decimals)
+  const fracInt = BigInt(frac || "0")
+  const scale = 10n ** BigInt(decimals)
+  return whole * scale + fracInt
 }
+
+const resolveReleaseAmountBaseUnits = (decimals) => {
+  const micros = pick([
+    "amountMicros",
+    "amount_micros",
+    "amountUsdcMicros",
+    "amount_usdc_micros",
+    "amountTotalUsdcMicros",
+    "amount_total_usdc_micros",
+  ])
+  if (micros != null && /^\d+$/.test(String(micros).trim())) {
+    return BigInt(String(micros).trim())
+  }
+
+  const uiAmount =
+    pick([
+      "amountUsdc",
+      "amount_usdc",
+      "amountTotalUsdc",
+      "amount_total_usdc",
+      "totalAmountUsdc",
+      "total_amount_usdc",
+      "amount",
+    ]) ??
+    props.contract?.amounts?.totalUsdc ??
+    props.contract?.amounts?.total_usdc ??
+    null
+
+  return parseAmountToBaseUnits(uiAmount, decimals)
+}
+
+const handleValidateContract = () =>
+  withAction("Validating contract...", async () => {
+    if (!isEmployer.value) throw new Error("Only the employer can validate this contract.")
+    if (!contractUuid.value) throw new Error("Contract UUID not found.")
+
+    const usdcMintRaw = String(props.usdcMint || pick(["usdcMint", "usdc_mint"]) || "").trim()
+    if (!usdcMintRaw) throw new Error("USDC mint missing.")
+    const rpcUrlRaw = String(props.rpcUrl || "").trim()
+    if (!rpcUrlRaw) throw new Error("RPC URL missing.")
+
+    const freelancerWalletRaw = String(freelancerWallet.value || "").trim()
+    if (!freelancerWalletRaw) throw new Error("Freelancer wallet missing.")
+
+    const { phantom, publicKey } = await ensurePhantom({ auth, txStatus, walletAddress })
+    if (!publicKey) throw new Error("Wallet required.")
+
+    const connection = getConnection(rpcUrlRaw)
+    const mintPk = new PublicKey(usdcMintRaw)
+    const senderPk = publicKey
+    const recipientPk = new PublicKey(freelancerWalletRaw)
+
+    const mintInfo = await getMint(connection, mintPk)
+    const decimals = mintInfo?.decimals ?? 6
+    const amountBaseUnits = resolveReleaseAmountBaseUnits(decimals)
+    if (amountBaseUnits <= 0n) throw new Error("Invalid contract amount.")
+
+    const senderAta = await getAssociatedTokenAddress(
+      mintPk,
+      senderPk,
+      false,
+      TOKEN_PROGRAM_ID,
+      ASSOCIATED_TOKEN_PROGRAM_ID,
+    )
+    const recipientAta = await getAssociatedTokenAddress(
+      mintPk,
+      recipientPk,
+      false,
+      TOKEN_PROGRAM_ID,
+      ASSOCIATED_TOKEN_PROGRAM_ID,
+    )
+
+    const senderAtaInfo = await connection.getAccountInfo(senderAta)
+    if (!senderAtaInfo) throw new Error("Employer USDC account not found.")
+
+    const tx = new Transaction()
+    const recipientAtaInfo = await connection.getAccountInfo(recipientAta)
+    if (!recipientAtaInfo) {
+      tx.add(
+        createAssociatedTokenAccountInstruction(
+          senderPk,
+          recipientAta,
+          recipientPk,
+          mintPk,
+          TOKEN_PROGRAM_ID,
+          ASSOCIATED_TOKEN_PROGRAM_ID,
+        ),
+      )
+    }
+
+    tx.add(
+      createTransferInstruction(
+        senderAta,
+        recipientAta,
+        senderPk,
+        amountBaseUnits,
+        [],
+        TOKEN_PROGRAM_ID,
+      ),
+    )
+
+    tx.feePayer = senderPk
+    const latest = await connection.getLatestBlockhash("confirmed")
+    tx.recentBlockhash = latest.blockhash
+
+    let signature = null
+    if (typeof phantom.signAndSendTransaction === "function") {
+      const res = await phantom.signAndSendTransaction(tx)
+      signature = res?.signature || res
+    } else if (typeof phantom.sendTransaction === "function") {
+      signature = await phantom.sendTransaction(tx, connection)
+    } else {
+      throw new Error("Wallet cannot send transaction.")
+    }
+
+    const txSig = String(signature || "").trim()
+    if (!txSig) throw new Error("Empty transaction signature.")
+
+    await connection.confirmTransaction(txSig, "confirmed")
+    await releaseContractApi(contractUuid.value, txSig)
+    validatedNow.value = true
+    await loadDisputeState()
+    emit("updated")
+    txStatus.value = "Contract validated."
+    return txSig
+  })
 
 const handleAdminVote = (vote) =>
   withAction(`Voting ${vote}...`, async () => {
@@ -223,6 +379,7 @@ watch(
     if (props.adminReadonly) return
     voteState.value = null
     disputeState.value = null
+    validatedNow.value = false
     resolveTxSig.value = ""
     disputeReason.value = ""
     loadDisputeState()
@@ -289,18 +446,26 @@ onMounted(() => {
       <p class="label">Actions</p>
 
       <div class="actions-grid">
-        <button class="btn nav" type="button" :disabled="loading" @click="handleValidateContract">
+        <button
+          class="btn nav"
+          type="button"
+          :disabled="loading || !isEmployer || isDisputeOpen || isContractLocked"
+          @click="handleValidateContract"
+        >
           Validate Contract
         </button>
         <button
           class="btn warn"
           type="button"
-          :disabled="!canDispute || loading || hasDispute"
+          :disabled="!canDispute || loading || hasDispute || isContractLocked"
           @click="handleDispute"
         >
           Open dispute
         </button>
       </div>
+      <p v-if="!isEmployer" class="status">Only the employer wallet can validate this contract.</p>
+      <p v-else-if="isDisputeOpen" class="status">Validation is locked while a dispute is open.</p>
+      <p v-else-if="isContractLocked" class="status">This contract is closed. Actions are disabled.</p>
 
       <textarea
         v-model="disputeReason"

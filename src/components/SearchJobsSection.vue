@@ -181,14 +181,6 @@ const formatJobLocation = (job) => {
   gap: 16px;
 }
 
-.panel-header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
 .eyebrow {
   color: #8f9cb8;
   text-transform: uppercase;
@@ -477,10 +469,6 @@ h2 {
 }
 
 @media (max-width: 680px) {
-  .panel-header {
-    align-items: flex-start;
-  }
-
   .search-grid {
     grid-template-columns: 1fr;
   }

@@ -1,8 +1,19 @@
 <script setup>
 import { computed, reactive, ref, watch } from "vue"
-
 const props = defineProps({
   profile: { type: Object, default: () => ({}) },
+  reputation: {
+    type: Object,
+    default: () => ({
+      contractsValidated: 0,
+      disputesWon: 0,
+      disputesLost: 0,
+      disputesSplit: 0,
+      disputesOpen: 0,
+    }),
+  },
+  reputationLoading: { type: Boolean, default: false },
+  reputationError: { type: String, default: "" },
   loading: { type: Boolean, default: false },
   saving: { type: Boolean, default: false },
   error: { type: String, default: "" },
@@ -97,40 +108,158 @@ const saveProfile = () => {
   emit("save-profile", createDraft(editedProfile))
   editMode.value = false
 }
+
+const toNumber = (value) => {
+  const n = Number(value)
+  return Number.isFinite(n) && n >= 0 ? n : 0
+}
+
+const reputationStats = computed(() => ({
+  contractsValidated: toNumber(props.reputation?.contractsValidated),
+  disputesWon: toNumber(props.reputation?.disputesWon),
+  disputesLost: toNumber(props.reputation?.disputesLost),
+  disputesSplit: toNumber(props.reputation?.disputesSplit),
+  disputesOpen: toNumber(props.reputation?.disputesOpen),
+}))
+
+const reliabilityScore = computed(() => {
+  const s = reputationStats.value
+  const positive = s.contractsValidated + s.disputesWon
+  const neutral = s.disputesSplit * 0.5
+  const negative = s.disputesLost + s.disputesOpen * 0.75
+  const denominator = positive + neutral + negative
+  if (denominator <= 0) return 0
+  return Math.max(0, Math.min(100, Math.round(((positive + neutral) / denominator) * 100)))
+})
+
+const reliabilityLabel = computed(() => {
+  const score = reliabilityScore.value
+  if (score >= 75) return "Excellent Reliability"
+  if (score >= 50) return "Moderate Reliability"
+  return "Low Reliability"
+})
+
+const scoreTone = computed(() => {
+  const score = reliabilityScore.value
+  if (score >= 70) return "good"
+  if (score >= 40) return "warn"
+  return "bad"
+})
+
+const successRate = computed(() => {
+  const s = reputationStats.value
+  const resolved = s.disputesWon + s.disputesLost + s.disputesSplit
+  if (resolved <= 0) return 0
+  return Math.round(((s.disputesWon + s.disputesSplit * 0.5) / resolved) * 100)
+})
+
+const totalKpiBase = computed(() => {
+  const s = reputationStats.value
+  return Math.max(1, s.contractsValidated + s.disputesWon + s.disputesLost + s.disputesSplit + s.disputesOpen)
+})
+
+const kpis = computed(() => {
+  const s = reputationStats.value
+  const base = totalKpiBase.value
+  return [
+    { key: "contracts", label: "Validated contracts", value: s.contractsValidated, pct: Math.round((s.contractsValidated / base) * 100), tone: "ok" },
+    { key: "won", label: "Disputes won", value: s.disputesWon, pct: Math.round((s.disputesWon / base) * 100), tone: "good" },
+    { key: "open", label: "Disputes open", value: s.disputesOpen, pct: Math.round((s.disputesOpen / base) * 100), tone: "warn" },
+    { key: "lost", label: "Disputes lost", value: s.disputesLost, pct: Math.round((s.disputesLost / base) * 100), tone: "bad" },
+    { key: "split", label: "Disputes split", value: s.disputesSplit, pct: Math.round((s.disputesSplit / base) * 100), tone: "split" },
+  ]
+})
+
+const ringStyle = computed(() => {
+  const score = reliabilityScore.value
+  const color = scoreTone.value === "good" ? "#72d63f" : scoreTone.value === "warn" ? "#f3a233" : "#f06063"
+  const trail = scoreTone.value === "good" ? "rgba(114, 214, 63, 0.2)" : scoreTone.value === "warn" ? "rgba(243, 162, 51, 0.2)" : "rgba(240, 96, 99, 0.2)"
+  return {
+    background: `conic-gradient(${color} 0 ${score}%, ${trail} ${score}% 100%)`,
+  }
+})
 </script>
 
 <template>
   <section class="profile-section">
     <div class="header-card">
-      <div>
-        <p class="eyebrow">Private Profile</p>
+      <div class="profile-top-grid">
+        <article class="preview-card-lite preview-main">
+          <h3>Profile Preview</h3>
+          <div class="preview-identity">
+            <p class="eyebrow">Private Profile</p>
+            <div v-if="loading" class="muted">Chargement du profil…</div>
+            <div v-else>
+              <h2>{{ previewProfile.name }}</h2>
+              <p class="title">{{ previewProfile.title }}</p>
+              <p class="muted">{{ previewProfile.location }}</p>
+            </div>
+            <p v-if="error" class="error">{{ error }}</p>
+          </div>
+          <p class="helper">This is what clients see when you share your profile.</p>
+          <div class="chips">
+            <span class="chip">Rate: {{ previewProfile.rate }}</span>
+            <span class="chip">Availability: {{ previewProfile.availability }}</span>
+          </div>
+          <p class="bio">{{ previewProfile.bio }}</p>
 
-        <div v-if="loading" class="muted">Chargement du profil…</div>
-        <div v-else>
-          <h2>{{ previewProfile.name }}</h2>
-          <p class="title">{{ previewProfile.title }}</p>
-          <p class="muted">{{ previewProfile.location }}</p>
-        </div>
+          <div class="preview-split">
+            <div class="preview-block">
+              <p class="block-title">Core Skills</p>
+              <div class="tags">
+                <span v-for="skill in previewProfile.skills" :key="skill" class="tag">{{ skill }}</span>
+              </div>
+            </div>
+            <div class="preview-block">
+              <p class="block-title">Highlights</p>
+              <ul class="highlights">
+                <li v-for="item in previewProfile.highlights" :key="item">{{ item }}</li>
+              </ul>
+            </div>
+          </div>
+        </article>
 
-        <p v-if="error" class="error">{{ error }}</p>
-      </div>
+        <div class="right-stack">
+          <section class="reliability-box">
+            <div class="reliability-content">
+              <div class="score-column">
+                <div class="score-ring" :style="ringStyle">
+                  <div class="score-core">
+                    <strong>{{ reliabilityScore }}</strong>
+                    <span>%</span>
+                  </div>
+                </div>
+                <p class="score-title">{{ reliabilityLabel }}</p>
+                <p class="success-rate">Taux de succès: {{ successRate }}%</p>
+              </div>
 
-      <div class="actions">
-        <button
-          v-if="!editMode"
-          class="primary-btn"
-          :disabled="loading || saving"
-          @click="startEditing"
-        >
-          Edit profile
-        </button>
+              <div class="score-meta">
+                <p class="score-heading">Fiabilité</p>
+                <p v-if="reputationLoading" class="muted">Loading reputation…</p>
+                <p v-else-if="reputationError" class="muted">{{ reputationError }}</p>
+                <div v-else class="kpi-list">
+                  <div v-for="item in kpis" :key="item.key" class="kpi-row">
+                    <span class="kpi-label">{{ item.value }} {{ item.label }}</span>
+                    <span class="kpi-pct">{{ item.pct }}%</span>
+                    <div class="kpi-track">
+                      <div :class="['kpi-fill', item.tone]" :style="{ width: `${item.pct}%` }" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
 
-        <div v-else class="action-row">
-          <button class="ghost-btn" :disabled="saving" @click="cancelEdit">Cancel</button>
-          <button class="primary-btn" :disabled="saving" @click="saveProfile">
-            <span v-if="saving">Saving…</span>
-            <span v-else>Save changes</span>
-          </button>
+          <article class="preview-card-lite portfolio-card">
+            <h3>Portfolio</h3>
+            <div class="portfolio">
+              <div v-for="item in previewProfile.portfolio" :key="item.label" class="portfolio-item">
+                <p class="label">{{ item.label }}</p>
+                <p class="muted">{{ item.tech }}</p>
+                <a class="link" :href="item.link || '#'" target="_blank" rel="noreferrer">View</a>
+              </div>
+            </div>
+          </article>
         </div>
       </div>
     </div>
@@ -139,7 +268,24 @@ const saveProfile = () => {
       <article class="card form-card">
         <div class="section-head">
           <h3>Profile details</h3>
-          <p class="helper">Update your headline, rates and bio in one place.</p>
+          <div class="actions">
+            <button
+              v-if="!editMode"
+              class="primary-btn"
+              :disabled="loading || saving"
+              @click="startEditing"
+            >
+              Edit profile
+            </button>
+
+            <div v-else class="action-row">
+              <button class="ghost-btn" :disabled="saving" @click="cancelEdit">Cancel</button>
+              <button class="primary-btn" :disabled="saving" @click="saveProfile">
+                <span v-if="saving">Saving…</span>
+                <span v-else>Save changes</span>
+              </button>
+            </div>
+          </div>
         </div>
 
         <div class="form-grid">
@@ -253,44 +399,6 @@ const saveProfile = () => {
         </div>
       </article>
 
-      <article class="card preview-card">
-        <div class="section-head">
-          <h3>Profile preview</h3>
-          <p class="helper">This is what clients see when you share your profile.</p>
-        </div>
-
-        <div class="chips">
-          <span class="chip">Rate: {{ previewProfile.rate }}</span>
-          <span class="chip">Availability: {{ previewProfile.availability }}</span>
-        </div>
-
-        <p class="bio">{{ previewProfile.bio }}</p>
-
-        <div class="preview-block">
-          <p class="block-title">Core Skills</p>
-          <div class="tags">
-            <span v-for="skill in previewProfile.skills" :key="skill" class="tag">{{ skill }}</span>
-          </div>
-        </div>
-
-        <div class="preview-block">
-          <p class="block-title">Highlights</p>
-          <ul class="highlights">
-            <li v-for="item in previewProfile.highlights" :key="item">{{ item }}</li>
-          </ul>
-        </div>
-
-        <div class="preview-block">
-          <p class="block-title">Portfolio</p>
-          <div class="portfolio">
-            <div v-for="item in previewProfile.portfolio" :key="item.label" class="portfolio-item">
-              <p class="label">{{ item.label }}</p>
-              <p class="muted">{{ item.tech }}</p>
-              <a class="link" :href="item.link || '#'" target="_blank" rel="noreferrer">View</a>
-            </div>
-          </div>
-        </div>
-      </article>
     </div>
 
     <div class="note">
@@ -312,16 +420,233 @@ const saveProfile = () => {
 
 .header-card {
   display: flex;
-  align-items: center;
+  flex-wrap: wrap;
+  align-items: stretch;
   justify-content: space-between;
   gap: 12px;
-  background: linear-gradient(160deg, rgba(8, 12, 24, 0.95), rgba(10, 17, 32, 0.92));
-  border: 1px solid rgba(120, 90, 255, 0.25);
+  background: linear-gradient(160deg, var(--panel) 0%, var(--panel-strong) 100%) !important;
+  border: 1px solid var(--border-soft) !important;
   border-radius: 14px;
   padding: 14px;
   box-shadow:
     0 12px 26px rgba(0, 0, 0, 0.32),
     0 0 18px rgba(120, 90, 255, 0.2);
+  background-image:
+    radial-gradient(circle at 72% 8%, rgba(115, 137, 255, 0.18), transparent 36%),
+    radial-gradient(circle at 15% 90%, rgba(112, 80, 255, 0.14), transparent 42%),
+    linear-gradient(160deg, var(--panel) 0%, var(--panel-strong) 100%);
+}
+
+.profile-top-grid {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(320px, 1fr);
+  gap: 14px;
+}
+
+.right-stack {
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  gap: 12px;
+}
+
+.reliability-box {
+  border-radius: 14px;
+  border: 1px solid rgba(120, 90, 255, 0.25);
+  background: rgba(255, 255, 255, 0.03);
+  padding: 12px;
+}
+
+.reliability-content {
+  display: grid;
+  grid-template-columns: 150px 1fr;
+  gap: 12px;
+}
+
+.score-column {
+  display: grid;
+  justify-items: center;
+  align-content: start;
+  gap: 8px;
+}
+
+.score-heading {
+  color: #e8efff;
+  font-weight: 800;
+  font-size: 18px;
+  margin-bottom: 8px;
+}
+
+.reliability-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.reliability-card {
+  border: 1px solid rgba(120, 90, 255, 0.2);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 10px;
+}
+
+.reliability-value {
+  color: #ecf4ff;
+  font-size: 32px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.reliability-label {
+  color: #d6e1fa;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.reliability-sub {
+  color: #98abd2;
+  font-size: 13px;
+}
+
+.preview-card-lite {
+  border: 1px solid rgba(120, 90, 255, 0.25);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.preview-main {
+  align-content: start;
+}
+
+.preview-identity {
+  display: grid;
+  gap: 3px;
+  margin-bottom: 2px;
+}
+
+.preview-split {
+  margin-top: 6px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(120, 90, 255, 0.2);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.preview-card-lite h3 {
+  margin: 0;
+}
+
+.score-ring {
+  width: 110px;
+  height: 110px;
+  border-radius: 50%;
+  padding: 8px;
+  display: grid;
+  place-items: center;
+  box-shadow:
+    0 10px 20px rgba(0, 0, 0, 0.34),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+.score-core {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.08), rgba(7, 16, 38, 0.95));
+  color: #f0f6ff;
+  font-weight: 800;
+}
+
+.score-core strong {
+  font-size: 28px;
+  line-height: 1;
+}
+
+.score-core span {
+  margin-top: -4px;
+  font-size: 14px;
+  color: #b7c6e7;
+}
+
+.score-meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.score-title {
+  color: #eaf2ff;
+  font-weight: 700;
+  margin-bottom: 0;
+  text-align: center;
+}
+
+.kpi-list {
+  display: grid;
+  gap: 7px;
+}
+
+.kpi-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px 10px;
+  align-items: center;
+}
+
+.kpi-label {
+  color: #d8e3fb;
+  font-size: 12px;
+}
+
+.kpi-pct {
+  color: #eaf2ff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.kpi-track {
+  grid-column: 1 / -1;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.kpi-fill {
+  height: 100%;
+  border-radius: inherit;
+}
+
+.kpi-fill.ok {
+  background: linear-gradient(90deg, #6ecb41, #8ce35e);
+}
+
+.kpi-fill.good {
+  background: linear-gradient(90deg, #4dc855, #8ce35e);
+}
+
+.kpi-fill.warn {
+  background: linear-gradient(90deg, #f39b2f, #ffc96f);
+}
+
+.kpi-fill.bad {
+  background: linear-gradient(90deg, #f55f62, #ff8c8f);
+}
+
+.kpi-fill.split {
+  background: linear-gradient(90deg, #7a8cff, #9cb7ff);
+}
+
+.success-rate {
+  margin-top: 4px;
+  color: #c9d8f4;
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .actions {
@@ -387,9 +712,7 @@ h2 {
 }
 
 .edit-layout {
-  display: grid;
-  grid-template-columns: 1.1fr 0.9fr;
-  gap: 14px;
+  display: block;
   width: 100%;
 }
 
@@ -405,7 +728,7 @@ h2 {
 
 .section-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
   margin-bottom: 12px;
@@ -575,10 +898,10 @@ h2 {
 }
 
 .portfolio-item {
-  border: 1px solid rgba(120, 90, 255, 0.25);
   border-radius: 10px;
   padding: 10px;
-  background: rgba(7, 12, 24, 0.78);
+  background: linear-gradient(160deg, var(--panel) 0%, var(--panel-strong) 100%) !important;
+  border: 1px solid var(--border-soft) !important;
   box-shadow: 0 10px 22px rgba(0, 0, 0, 0.28);
   display: grid;
   gap: 2px;
@@ -612,12 +935,8 @@ h2 {
   display: inline-block;
 }
 
-.preview-card {
-  position: relative;
-}
-
 .preview-block {
-  margin-top: 12px;
+  margin-top: 0;
 }
 
 .block-title {
@@ -640,8 +959,23 @@ h2 {
     align-items: flex-start;
   }
 
-  .actions {
+  .profile-top-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .reliability-content {
+    grid-template-columns: 1fr;
+  }
+
+  .actions,
+  .action-row {
     width: 100%;
+    justify-content: flex-end;
+  }
+
+  .preview-split,
+  .reliability-grid {
+    grid-template-columns: 1fr;
   }
 
   .edit-layout {

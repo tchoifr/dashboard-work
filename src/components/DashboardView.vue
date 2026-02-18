@@ -388,6 +388,68 @@ const messageConversations = computed(() => conversationStore.conversationList)
 const activeConversation = computed(() => conversationStore.activeConversation)
 const activeThread = computed(() => conversationStore.activeThread)
 const unreadCount = computed(() => conversationStore.totalUnread)
+const walletCompactAddress = computed(() => {
+  const raw = String(phantomAddress.value || "").trim()
+  if (!raw) return "Not connected"
+  return `${raw.slice(0, 6)}...${raw.slice(-6)}`
+})
+const walletCompactNetwork = computed(() => phantomNetwork.value || walletConfigSafe.value.chain || "—")
+const walletCompactBalance = computed(() =>
+  phantomUsdcBalance.value === null ? "— USDC" : `${Number(phantomUsdcBalance.value).toFixed(2)} USDC`,
+)
+const walletMenuOpen = ref(false)
+const walletDropdownRef = ref(null)
+const sidebarOpen = ref(false)
+const topAlertCount = computed(() => {
+  const walletAlerts = walletGuardError.value ? 1 : 0
+  const adminAlerts = isAdminUser.value ? disputedContracts.value.length : 0
+  return walletAlerts + adminAlerts
+})
+
+function toggleWalletMenu() {
+  const next = !walletMenuOpen.value
+  walletMenuOpen.value = next
+  if (next && !walletGuardLoading.value) refreshWalletGuard()
+}
+
+function closeWalletMenu() {
+  walletMenuOpen.value = false
+}
+
+function toggleSidebar() {
+  sidebarOpen.value = !sidebarOpen.value
+}
+
+function closeSidebar() {
+  sidebarOpen.value = false
+}
+
+function selectTab(tab) {
+  activeTab.value = tab
+  closeSidebar()
+}
+
+function openNotificationsTab() {
+  activeTab.value = isAdminUser.value ? "Admin" : "Overview"
+  closeSidebar()
+}
+
+function openMessagesTab() {
+  activeTab.value = "Messages"
+  closeSidebar()
+}
+
+function openProfileTab() {
+  activeTab.value = "Profile"
+  closeSidebar()
+}
+
+function handleGlobalPointerDown(event) {
+  if (!walletMenuOpen.value) return
+  const root = walletDropdownRef.value
+  if (!root || root.contains(event.target)) return
+  closeWalletMenu()
+}
 
 // ==========================
 // LOADERS
@@ -929,6 +991,7 @@ watch(
 // ==========================
 onMounted(() => {
   window.addEventListener("focus", handleWindowFocus)
+  window.addEventListener("mousedown", handleGlobalPointerDown)
   if (auth.isAuthenticated) {
     attachPhantomSessionListeners()
     startWalletSessionPolling()
@@ -951,6 +1014,8 @@ watch(
 watch(
   [() => activeTab.value, () => isAdminUser.value],
   ([tab, canAccessAdmin]) => {
+    closeWalletMenu()
+    closeSidebar()
     if (tab === "Admin" && !canAccessAdmin) {
       activeTab.value = "Overview"
       return
@@ -972,8 +1037,19 @@ watch(
   },
 )
 
+watch(
+  () => auth.isAuthenticated,
+  (logged) => {
+    if (!logged) {
+      closeWalletMenu()
+      closeSidebar()
+    }
+  },
+)
+
 onBeforeUnmount(() => {
   window.removeEventListener("focus", handleWindowFocus)
+  window.removeEventListener("mousedown", handleGlobalPointerDown)
   detachPhantomSessionListeners()
   stopWalletSessionPolling()
 })
@@ -988,71 +1064,132 @@ onBeforeUnmount(() => {
     <header class="top-bar">
       <div class="work-pill">
         <img :src="byhnexLogo" alt="Byhnex logo" class="work-logo" />
-        <span class="work-text">Byhnex</span>
       </div>
 
+      <button class="menu-toggle" type="button" @click="toggleSidebar" aria-label="Open navigation menu">
+        ☰
+      </button>
+
+      <nav class="tabs tabs-inline">
+        <button
+          v-for="tab in tabs"
+          :key="tab"
+          :class="['tab', { active: activeTab === tab }]"
+          @click="selectTab(tab)"
+        >
+          <span>{{ tab }}</span>
+          <span v-if="tab === 'Messages' && unreadCount" class="tab-badge">
+            {{ unreadCount }}
+          </span>
+        </button>
+      </nav>
+
       <div class="top-actions">
-        <button class="logout-btn" @click="handleLogout">Deconnexion</button>
+        <div class="wallet-dropdown" ref="walletDropdownRef">
+          <button class="wallet-mini" type="button" @click="toggleWalletMenu" :title="phantomAddress || 'Wallet not connected'">
+            <span class="wallet-mini-main">
+              <span class="usdc-dot">●</span>
+              <span class="wallet-mini-balance">{{ walletCompactBalance }}</span>
+            </span>
+            <span class="wallet-caret">{{ walletMenuOpen ? "▴" : "▾" }}</span>
+          </button>
+
+          <div v-if="walletMenuOpen" class="wallet-menu">
+            <div class="wallet-menu-row">
+              <span>Address</span>
+              <strong>{{ phantomAddress || "Not connected" }}</strong>
+            </div>
+            <div class="wallet-menu-row">
+              <span>Network</span>
+              <strong>{{ walletCompactNetwork }}</strong>
+            </div>
+            <div class="wallet-menu-row">
+              <span>USDC</span>
+              <strong>{{ walletCompactBalance }}</strong>
+            </div>
+            <div v-if="walletGuardError" class="wallet-menu-error">STOP: {{ walletGuardError }}</div>
+            <div class="wallet-menu-actions">
+              <button class="wallet-menu-btn" type="button" :disabled="walletGuardLoading" @click="refreshWalletGuard">
+                {{ walletGuardLoading ? "Checking..." : "Refresh" }}
+              </button>
+              <button class="wallet-menu-btn logout" type="button" @click="handleLogout">Deconnexion</button>
+            </div>
+          </div>
+        </div>
+        <button
+          class="icon-dot"
+          type="button"
+          title="Notifications"
+          @click="openNotificationsTab"
+        >
+          <span>🔔</span>
+          <span v-if="topAlertCount" class="icon-count">{{ topAlertCount }}</span>
+        </button>
+        <button class="icon-dot" type="button" title="Messages" @click="openMessagesTab">
+          <span>✉</span>
+          <span v-if="unreadCount" class="icon-count">{{ unreadCount }}</span>
+        </button>
         <div
           class="profile profile-clickable"
           role="button"
           tabindex="0"
-          @click="activeTab = 'Profile'"
-          @keydown.enter.prevent="activeTab = 'Profile'"
-          @keydown.space.prevent="activeTab = 'Profile'"
+          @click="openProfileTab"
+          @keydown.enter.prevent="openProfileTab"
+          @keydown.space.prevent="openProfileTab"
         >
           {{ profile.username?.substring(0, 2).toUpperCase() }}
         </div>
       </div>
     </header>
 
-    <section class="wallet-guard" :class="{ bad: !!walletGuardError }">
-      <div class="wallet-guard-title">Wallet Phantom</div>
-      <div class="wallet-guard-row">
-        <span>Adresse</span>
-        <span>{{ phantomAddress || "Non connecté" }}</span>
+    <div v-if="sidebarOpen" class="nav-drawer-backdrop" @click="closeSidebar" />
+    <aside class="nav-drawer" :class="{ open: sidebarOpen }">
+      <div class="nav-drawer-head">
+        <div class="work-pill work-pill-drawer">
+          <img :src="byhnexLogo" alt="Byhnex logo" class="work-logo" />
+        </div>
+        <button class="menu-close" type="button" @click="closeSidebar" aria-label="Close navigation menu">×</button>
       </div>
-      <div class="wallet-guard-row">
-        <span>Réseau</span>
-        <span>{{ phantomNetwork || walletConfigSafe.chain }}</span>
-      </div>
-      <div class="wallet-guard-row">
-        <span>USDC</span>
-        <span>
-          {{
-            phantomUsdcBalance === null
-              ? "—"
-              : `${Number(phantomUsdcBalance).toFixed(2)} USDC`
-          }}
-        </span>
-      </div>
-      <div v-if="walletGuardError" class="wallet-guard-stop">
-        STOP: {{ walletGuardError }}
-      </div>
-      <button
-        class="wallet-guard-refresh"
-        :disabled="walletGuardLoading"
-        @click="refreshWalletGuard"
-      >
-        {{ walletGuardLoading ? "Vérification..." : "Rafraîchir" }}
-      </button>
-    </section>
 
-    <!-- NAVIGATION -->
-    <nav class="tabs">
-      <button
-        v-for="tab in tabs"
-        :key="tab"
-        :class="['tab', { active: activeTab === tab }]"
-        @click="activeTab = tab"
-      >
-        <span>{{ tab }}</span>
-        <span v-if="tab === 'Messages' && unreadCount" class="tab-badge">
-          {{ unreadCount }}
-        </span>
-      </button>
-    </nav>
+      <nav class="nav-drawer-tabs">
+        <button
+          v-for="tab in tabs"
+          :key="`drawer-${tab}`"
+          :class="['tab', { active: activeTab === tab }]"
+          @click="selectTab(tab)"
+        >
+          <span>{{ tab }}</span>
+          <span v-if="tab === 'Messages' && unreadCount" class="tab-badge">
+            {{ unreadCount }}
+          </span>
+        </button>
+      </nav>
 
+      <div class="nav-drawer-actions">
+        <button class="icon-dot" type="button" title="Notifications" @click="openNotificationsTab">
+          <span>🔔</span>
+          <span v-if="topAlertCount" class="icon-count">{{ topAlertCount }}</span>
+        </button>
+        <button class="icon-dot" type="button" title="Messages" @click="openMessagesTab">
+          <span>✉</span>
+          <span v-if="unreadCount" class="icon-count">{{ unreadCount }}</span>
+        </button>
+        <button class="icon-dot" type="button" title="Profile" @click="openProfileTab">👤</button>
+      </div>
+
+      <section class="nav-drawer-wallet">
+        <p class="drawer-wallet-title">Wallet</p>
+        <p class="drawer-wallet-value">{{ walletCompactBalance }}</p>
+        <p class="drawer-wallet-meta">{{ walletCompactNetwork }} • {{ walletCompactAddress }}</p>
+        <p v-if="walletGuardError" class="wallet-menu-error">STOP: {{ walletGuardError }}</p>
+        <div class="wallet-menu-actions">
+          <button class="wallet-menu-btn" type="button" :disabled="walletGuardLoading" @click="refreshWalletGuard">
+            {{ walletGuardLoading ? "Checking..." : "Refresh" }}
+          </button>
+          <button class="wallet-menu-btn logout" type="button" @click="handleLogout">Deconnexion</button>
+        </div>
+      </section>
+    </aside>
     <!-- ======================
          SECTIONS
     ======================= -->
@@ -1098,6 +1235,9 @@ onBeforeUnmount(() => {
     <ProfileSection
       v-else-if="activeTab === 'Profile'"
       :profile="profileView"
+      :reputation="profileStore.reputation"
+      :reputation-loading="profileStore.reputationLoading"
+      :reputation-error="profileStore.reputationError"
       :loading="profileStore.loading"
       :saving="profileStore.saving"
       :error="profileStore.error"
@@ -1171,54 +1311,179 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .page {
-  max-width: 1200px;
   margin: 0 auto 48px;
-  padding: 8px;
 }
 
 .top-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 28px;
+  gap: 14px;
+  margin-bottom: 20px;
+  padding: 20px;
+  border: 1px solid rgba(96, 133, 255, 0.26);
+  background:
+    radial-gradient(circle at 18% 20%, rgba(125, 125, 255, 0.16), transparent 38%),
+    linear-gradient(120deg, rgba(8, 16, 45, 0.94), rgba(5, 18, 52, 0.9));
+  box-shadow:
+    0 14px 24px rgba(0, 0, 0, 0.3),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.03);
 }
 
 .top-actions {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
-.logout-btn {
+.menu-toggle {
+  display: none;
   height: 36px;
+  width: 36px;
   border-radius: 10px;
-  padding: 0 12px;
-  border: 1px solid rgba(255, 120, 160, 0.35);
-  background: rgba(255, 120, 160, 0.12);
-  color: #ffd0e1;
+  border: 1px solid rgba(120, 90, 255, 0.24);
+  background: rgba(255, 255, 255, 0.04);
+  color: #dce7ff;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.wallet-dropdown {
+  position: relative;
+}
+
+.wallet-mini {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 132px;
+  height: 36px;
+  border-radius: 11px;
+  border: 1px solid rgba(120, 90, 255, 0.25);
+  background: rgba(255, 255, 255, 0.04);
+  color: #d9e5ff;
+  padding: 0 10px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.wallet-mini-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.usdc-dot {
+  color: #dfe7ff;
+  font-size: 11px;
+  line-height: 1;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(circle at 30% 30%, #aab8ff, #6a48ff);
+}
+
+.wallet-caret {
+  color: #8fa2ca;
+  font-size: 10px;
+  line-height: 1;
+}
+
+.wallet-mini-balance {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.wallet-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: min(320px, 85vw);
+  z-index: 20;
+  border-radius: 12px;
+  border: 1px solid rgba(96, 133, 255, 0.34);
+  background: linear-gradient(160deg, rgba(8, 15, 39, 0.98), rgba(9, 22, 52, 0.96));
+  box-shadow:
+    0 18px 32px rgba(0, 0, 0, 0.42),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.wallet-menu-row {
+  display: grid;
+  gap: 2px;
+}
+
+.wallet-menu-row span {
+  font-size: 11px;
+  color: #8ea1c9;
+}
+
+.wallet-menu-row strong {
+  font-size: 12px;
+  color: #e8f0ff;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.wallet-menu-error {
+  margin-top: 2px;
+  padding: 7px 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 107, 107, 0.45);
+  background: rgba(255, 107, 107, 0.12);
+  color: #ffb4b4;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.wallet-menu-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.wallet-menu-btn {
+  height: 32px;
+  border-radius: 9px;
+  border: 1px solid rgba(120, 90, 255, 0.32);
+  background: rgba(255, 255, 255, 0.04);
+  color: #dce7ff;
+  font-size: 12px;
   font-weight: 700;
   cursor: pointer;
 }
 
+.wallet-menu-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.wallet-menu-btn.logout {
+  border-color: rgba(255, 120, 160, 0.35);
+  background: rgba(255, 120, 160, 0.12);
+  color: #ffd0e1;
+}
+
 .work-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 12px;
-  min-width: 120px;
-  border-radius: 14px;
-  background: radial-gradient(circle at 30% 30%, rgba(120, 90, 255, 0.5), rgba(0, 198, 255, 0.35)),
-    linear-gradient(145deg, rgba(24, 33, 64, 0.9), rgba(18, 26, 54, 0.96));
+  padding: 5px;
+  border-radius: 25px;
+  background: linear-gradient(90deg, rgba(103, 95, 255, 0.92), rgba(36, 188, 255, 0.88));
   color: #eef2ff;
   box-shadow:
-    0 14px 32px rgba(0, 0, 0, 0.35),
-    0 0 12px rgba(120, 90, 255, 0.4),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+    0 10px 20px rgba(0, 0, 0, 0.28),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.18);
 }
 
 .work-logo {
-  width: 28px;
-  height: 28px;
+  width: 50px;
+  height: 50px;
   object-fit: contain;
   display: block;
 }
@@ -1227,8 +1492,37 @@ onBeforeUnmount(() => {
   color: #eef2ff;
   font-weight: 800;
   letter-spacing: 0.05em;
-  font-size: 12px;
+  font-size: 14px;
   text-transform: uppercase;
+}
+
+.icon-dot {
+  position: relative;
+  height: 36px;
+  width: 36px;
+  border-radius: 12px;
+  border: 1px solid rgba(120, 90, 255, 0.22);
+  background: rgba(255, 255, 255, 0.04);
+  color: #dce7ff;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.icon-count {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #6a48ff, #00c6ff);
+  color: #061227;
+  font-size: 10px;
+  line-height: 17px;
+  font-weight: 800;
+  text-align: center;
 }
 
 .profile {
@@ -1248,64 +1542,98 @@ onBeforeUnmount(() => {
   cursor: pointer;
 }
 
-.wallet-guard {
-  margin: 6px 0 18px;
-  padding: 14px 16px;
-  border-radius: 16px;
-  border: 1px solid rgba(120, 90, 255, 0.25);
-  background: linear-gradient(160deg, rgba(12, 18, 36, 0.92), rgba(14, 23, 52, 0.92));
-  box-shadow:
-    0 12px 26px rgba(0, 0, 0, 0.35),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+.nav-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(3, 8, 20, 0.6);
+  backdrop-filter: blur(2px);
+  z-index: 35;
 }
 
-.wallet-guard.bad {
-  border-color: rgba(255, 107, 107, 0.6);
-  background: linear-gradient(160deg, rgba(52, 16, 16, 0.92), rgba(24, 10, 24, 0.92));
+.nav-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: min(360px, 90vw);
+  height: 100vh;
+  z-index: 40;
+  padding: 14px;
+  display: grid;
+  grid-template-rows: auto auto auto 1fr;
+  gap: 12px;
+  background: linear-gradient(160deg, rgba(8, 15, 39, 0.98), rgba(9, 22, 52, 0.96));
+  border-left: 1px solid rgba(96, 133, 255, 0.34);
+  box-shadow: -18px 0 36px rgba(0, 0, 0, 0.4);
+  transform: translateX(104%);
+  transition: transform 0.2s ease;
+  pointer-events: none;
 }
 
-.wallet-guard-title {
-  color: #d6e0ff;
-  font-weight: 700;
-  margin-bottom: 10px;
-  letter-spacing: 0.4px;
+.nav-drawer.open {
+  transform: translateX(0);
+  pointer-events: auto;
 }
 
-.wallet-guard-row {
+.nav-drawer-head {
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  font-size: 13px;
-  color: #a6b3d1;
 }
 
-.wallet-guard-row span:last-child {
-  color: #e9f2ff;
-  font-weight: 600;
-  word-break: break-all;
+.work-pill-drawer {
+  min-width: 0;
 }
 
-.wallet-guard-stop {
-  margin-top: 10px;
-  color: #ffb4b4;
-  font-weight: 700;
-  font-size: 12px;
-}
-
-.wallet-guard-refresh {
-  margin-top: 10px;
-  padding: 8px 14px;
+.menu-close {
+  height: 34px;
+  width: 34px;
   border-radius: 10px;
-  border: 1px solid rgba(120, 90, 255, 0.35);
-  background: rgba(18, 28, 58, 0.9);
-  color: #d6e0ff;
-  font-weight: 700;
+  border: 1px solid rgba(120, 90, 255, 0.24);
+  background: rgba(255, 255, 255, 0.04);
+  color: #dce7ff;
+  font-size: 20px;
+  line-height: 1;
   cursor: pointer;
 }
 
-.wallet-guard-refresh:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
+.nav-drawer-tabs {
+  display: grid;
+  gap: 8px;
+}
+
+.nav-drawer-tabs .tab {
+  justify-content: space-between;
+}
+
+.nav-drawer-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.nav-drawer-wallet {
+  align-self: end;
+  border-radius: 12px;
+  border: 1px solid rgba(96, 133, 255, 0.3);
+  background: rgba(255, 255, 255, 0.03);
+  padding: 10px;
+  display: grid;
+  gap: 6px;
+}
+
+.drawer-wallet-title {
+  color: #9ab0d8;
+  font-size: 12px;
+}
+
+.drawer-wallet-value {
+  color: #ecf4ff;
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.drawer-wallet-meta {
+  color: #93a8d2;
+  font-size: 12px;
 }
 
 .metrics {
@@ -1378,9 +1706,18 @@ onBeforeUnmount(() => {
 
 .tabs {
   display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin: 12px 0 22px;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+
+.tabs-inline {
+ flex: 1;
+  min-width: 280px;
+  justify-content: space-around;
+  overflow-x: auto;
+  padding: 4px 2px;
+  max-width: 700PX;
 }
 
 .admin-cta {
@@ -1435,6 +1772,23 @@ onBeforeUnmount(() => {
 
   .metrics {
     grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  }
+}
+
+@media (max-width: 1024px) {
+  .top-bar {
+    justify-content: space-between;
+  }
+
+  .tabs-inline,
+  .top-actions {
+    display: none;
+  }
+
+  .menu-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
 }
 

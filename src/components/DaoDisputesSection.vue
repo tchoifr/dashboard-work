@@ -79,12 +79,6 @@ const isDisputeStatus = (status) => {
   gap: 14px;
 }
 
-.panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
 .eyebrow {
   color: #8f9cb8;
   text-transform: uppercase;

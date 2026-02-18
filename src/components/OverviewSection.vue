@@ -398,13 +398,6 @@ const pendingInvoices = computed(() => pendingInvoicesCount.value)
   min-height: 380px;
 }
 
-.panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 12px;
-}
-
 .panel-header h2 {
   margin: 0;
   font-size: 20px;

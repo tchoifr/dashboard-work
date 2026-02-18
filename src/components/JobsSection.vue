@@ -1,13 +1,16 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from "vue"
 import { useJobsStore } from "../store/jobs"
+import { useProfileStore } from "../store/profile"
 import { COUNTRY_OPTIONS } from "../data/countries"
 
 const jobsStore = useJobsStore()
+const profileStore = useProfileStore()
 
 const showForm = ref(false)
 const showApplicantsFor = ref(null) // jobId
 const showReceivedModal = ref(false)
+const showReputationModal = ref(false)
 const receivedStatusFilter = ref("")
 const selectedApplicantKey = ref("")
 
@@ -26,10 +29,16 @@ const loading = computed(() => jobsStore.loadingMine)
 const saving = computed(() => jobsStore.saving)
 const error = computed(() => jobsStore.error)
 const myJobs = computed(() => jobsStore.myJobs)
+const reputation = computed(() => profileStore.reputation || {})
+const reputationLoading = computed(() => profileStore.reputationLoading)
+const reputationError = computed(() => profileStore.reputationError)
 const countries = COUNTRY_OPTIONS
 
 onMounted(async () => {
   await jobsStore.fetchMine()
+  if (!profileStore.reputation?.userUuid && !profileStore.reputationLoading) {
+    await profileStore.fetchMyReputation()
+  }
 })
 
 const resetForm = () => {
@@ -297,6 +306,82 @@ const onDeleteApplicationFromJob = async (job, app) => {
     alert(e?.response?.data?.message || e.message || "Suppression impossible")
   }
 }
+
+const openReputationModal = () => {
+  showReputationModal.value = true
+}
+
+const closeReputationModal = () => {
+  showReputationModal.value = false
+}
+
+const toNumber = (value) => {
+  const n = Number(value)
+  return Number.isFinite(n) && n >= 0 ? n : 0
+}
+
+const reputationStats = computed(() => ({
+  contractsValidated: toNumber(reputation.value?.contractsValidated),
+  disputesWon: toNumber(reputation.value?.disputesWon),
+  disputesLost: toNumber(reputation.value?.disputesLost),
+  disputesSplit: toNumber(reputation.value?.disputesSplit),
+  disputesOpen: toNumber(reputation.value?.disputesOpen),
+}))
+
+const reliabilityScore = computed(() => {
+  const s = reputationStats.value
+  const positive = s.contractsValidated + s.disputesWon
+  const neutral = s.disputesSplit * 0.5
+  const negative = s.disputesLost + s.disputesOpen * 0.75
+  const denominator = positive + neutral + negative
+  if (denominator <= 0) return 0
+  return Math.max(0, Math.min(100, Math.round(((positive + neutral) / denominator) * 100)))
+})
+
+const reliabilityLabel = computed(() => {
+  const score = reliabilityScore.value
+  if (score >= 75) return "High Reliability"
+  if (score >= 40) return "Moderate Reliability"
+  return "Low Reliability"
+})
+
+const scoreTone = computed(() => {
+  const score = reliabilityScore.value
+  if (score >= 70) return "good"
+  if (score >= 40) return "warn"
+  return "bad"
+})
+
+const successRate = computed(() => {
+  const s = reputationStats.value
+  const resolved = s.disputesWon + s.disputesLost + s.disputesSplit
+  if (resolved <= 0) return 0
+  return Math.round(((s.disputesWon + s.disputesSplit * 0.5) / resolved) * 100)
+})
+
+const totalKpiBase = computed(() => {
+  const s = reputationStats.value
+  return Math.max(1, s.contractsValidated + s.disputesWon + s.disputesLost + s.disputesSplit + s.disputesOpen)
+})
+
+const reputationKpis = computed(() => {
+  const s = reputationStats.value
+  const base = totalKpiBase.value
+  return [
+    { key: "contracts", label: "Validated contracts", value: s.contractsValidated, pct: Math.round((s.contractsValidated / base) * 100), tone: "ok" },
+    { key: "won", label: "Disputes won", value: s.disputesWon, pct: Math.round((s.disputesWon / base) * 100), tone: "good" },
+    { key: "open", label: "Disputes open", value: s.disputesOpen, pct: Math.round((s.disputesOpen / base) * 100), tone: "warn" },
+    { key: "lost", label: "Disputes lost", value: s.disputesLost, pct: Math.round((s.disputesLost / base) * 100), tone: "bad" },
+    { key: "split", label: "Disputes split", value: s.disputesSplit, pct: Math.round((s.disputesSplit / base) * 100), tone: "split" },
+  ]
+})
+
+const reputationRingStyle = computed(() => {
+  const score = reliabilityScore.value
+  const color = scoreTone.value === "good" ? "#72d63f" : scoreTone.value === "warn" ? "#f3a233" : "#f06063"
+  const trail = scoreTone.value === "good" ? "rgba(114, 214, 63, 0.2)" : scoreTone.value === "warn" ? "rgba(243, 162, 51, 0.2)" : "rgba(240, 96, 99, 0.2)"
+  return { background: `conic-gradient(${color} 0 ${score}%, ${trail} ${score}% 100%)` }
+})
 </script>
 
 <template>
@@ -389,6 +474,10 @@ const onDeleteApplicationFromJob = async (job, app) => {
 
             <button class="danger-btn compact" type="button" :disabled="saving" @click="onDelete(job)">
               Delete
+            </button>
+
+            <button class="ghost-btn compact" type="button" @click="openReputationModal">
+              Reputation
             </button>
 
             <button
@@ -743,6 +832,49 @@ const onDeleteApplicationFromJob = async (job, app) => {
         </div>
       </div>
     </div>
+
+    <div v-if="showReputationModal" class="modal" @click.self="closeReputationModal">
+      <div class="modal-card reputation-modal">
+        <header class="modal-head">
+          <div>
+            <p class="eyebrow">Reputation</p>
+            <h3>Reliability snapshot</h3>
+            <p class="muted">Current rating used on your jobs.</p>
+          </div>
+          <button class="close-btn" type="button" @click="closeReputationModal">×</button>
+        </header>
+
+        <div class="reputation-box">
+          <div class="reputation-content">
+            <div class="score-column">
+              <div class="score-ring" :style="reputationRingStyle">
+                <div class="score-core">
+                  <strong>{{ reliabilityScore }}</strong>
+                  <span>%</span>
+                </div>
+              </div>
+              <p class="score-title">{{ reliabilityLabel }}</p>
+              <p class="success-rate">Success rate: {{ successRate }}%</p>
+            </div>
+
+            <div class="score-meta">
+              <p class="score-heading">Reliability</p>
+              <p v-if="reputationLoading" class="muted">Loading reputation…</p>
+              <p v-else-if="reputationError" class="error">{{ reputationError }}</p>
+              <div v-else class="kpi-list">
+                <div v-for="item in reputationKpis" :key="item.key" class="kpi-row">
+                  <span class="kpi-label">{{ item.value }} {{ item.label }}</span>
+                  <span class="kpi-pct">{{ item.pct }}%</span>
+                  <div class="kpi-track">
+                    <div :class="['kpi-fill', item.tone]" :style="{ width: `${item.pct}%` }" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </section>
 </template>
 
@@ -904,13 +1036,6 @@ const onDeleteApplicationFromJob = async (job, app) => {
   display: flex;
   flex-direction: column;
   gap: 16px;
-}
-
-.panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
 }
 
 h2 {
@@ -1484,6 +1609,145 @@ h2 {
   cursor: pointer;
 }
 
+.reputation-modal {
+  width: min(760px, 100%);
+}
+
+.reputation-box {
+  border-radius: 14px;
+  border: 1px solid rgba(120, 90, 255, 0.25);
+  background: rgba(255, 255, 255, 0.03);
+  padding: 12px;
+}
+
+.reputation-content {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  gap: 14px;
+}
+
+.score-column {
+  display: grid;
+  justify-items: center;
+  align-content: start;
+  gap: 8px;
+}
+
+.score-ring {
+  width: 116px;
+  height: 116px;
+  border-radius: 50%;
+  padding: 8px;
+  display: grid;
+  place-items: center;
+  box-shadow:
+    0 10px 20px rgba(0, 0, 0, 0.34),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+.score-core {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.08), rgba(7, 16, 38, 0.95));
+  color: #f0f6ff;
+  font-weight: 800;
+}
+
+.score-core strong {
+  font-size: 36px;
+  line-height: 1;
+}
+
+.score-core span {
+  margin-top: -4px;
+  font-size: 14px;
+  color: #b7c6e7;
+}
+
+.score-title {
+  color: #eaf2ff;
+  font-weight: 700;
+  margin-bottom: 0;
+  text-align: center;
+}
+
+.success-rate {
+  margin-top: 2px;
+  color: #c9d8f4;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.score-meta {
+  min-width: 0;
+}
+
+.score-heading {
+  color: #e8efff;
+  font-weight: 800;
+  font-size: 20px;
+  margin-bottom: 8px;
+}
+
+.kpi-list {
+  display: grid;
+  gap: 8px;
+}
+
+.kpi-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px 10px;
+  align-items: center;
+}
+
+.kpi-label {
+  color: #d8e3fb;
+  font-size: 14px;
+}
+
+.kpi-pct {
+  color: #eaf2ff;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.kpi-track {
+  grid-column: 1 / -1;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.kpi-fill {
+  height: 100%;
+  border-radius: inherit;
+}
+
+.kpi-fill.ok {
+  background: linear-gradient(90deg, #6ecb41, #8ce35e);
+}
+
+.kpi-fill.good {
+  background: linear-gradient(90deg, #4dc855, #8ce35e);
+}
+
+.kpi-fill.warn {
+  background: linear-gradient(90deg, #f39b2f, #ffc96f);
+}
+
+.kpi-fill.bad {
+  background: linear-gradient(90deg, #f55f62, #ff8c8f);
+}
+
+.kpi-fill.split {
+  background: linear-gradient(90deg, #7a8cff, #9cb7ff);
+}
+
 @media (max-width: 680px) {
   .footer {
     flex-direction: column;
@@ -1492,6 +1756,10 @@ h2 {
 
   .applicant-actions {
     justify-content: flex-start;
+  }
+
+  .reputation-content {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -1587,10 +1855,9 @@ h2 {
 }
 
 .portfolio-item {
-  border: 1px solid rgba(120, 90, 255, 0.25);
-  border-radius: 10px;
+background: linear-gradient(160deg, var(--panel) 0%, var(--panel-strong) 100%) !important;
+  border: 1px solid var(--border-soft) !important;  border-radius: 10px;
   padding: 10px;
-  background: rgba(255, 255, 255, 0.03);
   box-shadow: 0 10px 22px rgba(0, 0, 0, 0.28);
 }
 

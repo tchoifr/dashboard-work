@@ -426,13 +426,6 @@ const viewContract = (contract) => emit('view-contract', contract)
   gap: 16px;
 }
 
-.panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
 h2 {
   background: linear-gradient(90deg, #b77bff, #00c6ff);
   -webkit-background-clip: text;

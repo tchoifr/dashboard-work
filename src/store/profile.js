@@ -1,6 +1,6 @@
 // src/store/profile.js
 import { defineStore } from "pinia"
-import { getMyProfile, updateMyProfile } from "../services/profileApi"
+import { getMyProfile, getMyReputation, updateMyProfile } from "../services/profileApi"
 import { useAuthStore } from "./auth"
 
 const empty = (fallbackName = "") => ({
@@ -17,20 +17,56 @@ const empty = (fallbackName = "") => ({
   portfolio: [],
 })
 
+const emptyReputation = () => ({
+  userUuid: null,
+  contractsValidated: 0,
+  disputesWon: 0,
+  disputesLost: 0,
+  disputesSplit: 0,
+  disputesOpen: 0,
+})
+
 export const useProfileStore = defineStore("profile", {
   state: () => ({
     profile: empty(),
+    reputation: emptyReputation(),
     loading: false,
+    reputationLoading: false,
     saving: false,
     error: null,
+    reputationError: null,
   }),
 
   actions: {
     reset() {
       this.profile = empty()
+      this.reputation = emptyReputation()
       this.loading = false
+      this.reputationLoading = false
       this.saving = false
       this.error = null
+      this.reputationError = null
+    },
+
+    async fetchMyReputation() {
+      const auth = useAuthStore()
+      if (!auth.token) return
+
+      this.reputationLoading = true
+      this.reputationError = null
+      try {
+        const data = await getMyReputation()
+        this.reputation = {
+          ...emptyReputation(),
+          ...(data || {}),
+        }
+      } catch (e) {
+        this.reputationError = e?.response?.data?.message || e.message || "Erreur chargement réputation"
+        this.reputation = emptyReputation()
+        console.error("profile.fetchMyReputation failed", e?.response?.status, e?.response?.data || e)
+      } finally {
+        this.reputationLoading = false
+      }
     },
 
     async fetchMe() {
@@ -50,10 +86,12 @@ export const useProfileStore = defineStore("profile", {
           highlights: Array.isArray(data?.highlights) ? data.highlights : [],
           portfolio: Array.isArray(data?.portfolio) ? data.portfolio : [],
         }
+        await this.fetchMyReputation()
       } catch (e) {
         this.error = e?.response?.data?.message || e.message || "Erreur chargement profil"
         // fallback local
         this.profile = empty(auth.user?.username)
+        this.reputation = emptyReputation()
         console.error("profile.fetchMe failed", e?.response?.status, e?.response?.data || e)
       } finally {
         this.loading = false

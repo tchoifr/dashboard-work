@@ -207,14 +207,6 @@ function askDeleteMessage(msg) {
   gap: 16px;
 }
 
-.panel-header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 10px;
-}
-
 h3 { color: #eae7ff; font-weight: 700; margin: 0; }
 .hint { color: #8f9cb8; font-size: 12px; }
 

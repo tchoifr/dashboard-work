@@ -2,7 +2,7 @@
 
 #app {
   min-height: 100vh;
-  padding: 32px 38px 48px;
+  padding: 0pxpx 38px 48px;
   font-weight: 500;
 }
 
@@ -14,9 +14,11 @@ a {
 a:hover {
   color: var(--primary-strong);
 }
-
+section{
+  padding: 20px;
+}
 @media (max-width: 640px) {
   #app {
-    padding: 24px 18px 36px;
+    padding: 0px 18px 36px;
   }
 }
