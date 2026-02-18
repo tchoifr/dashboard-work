@@ -184,6 +184,11 @@ const handleDispute = () =>
     return true
   })
 
+const handleValidateContract = () => {
+  txStatus.value = "Contract validated."
+  emit("updated")
+}
+
 const handleAdminVote = (vote) =>
   withAction(`Voting ${vote}...`, async () => {
     if (!disputeId.value) throw new Error("Dispute ID introuvable.")
@@ -284,6 +289,9 @@ onMounted(() => {
       <p class="label">Actions</p>
 
       <div class="actions-grid">
+        <button class="btn nav" type="button" :disabled="loading" @click="handleValidateContract">
+          Validate Contract
+        </button>
         <button
           class="btn warn"
           type="button"
@@ -369,6 +377,8 @@ onMounted(() => {
   color: #dfe7ff;
   display: grid;
   gap: 14px;
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
 }
 
 .modal-head {
@@ -392,6 +402,7 @@ h3 {
   color: transparent;
   font-size: 20px;
   margin: 4px 0;
+  overflow-wrap: anywhere;
 }
 
 .muted {
@@ -437,6 +448,8 @@ h3 {
   margin-top: 4px;
   font-weight: 700;
   color: #f4f6ff;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .body {
@@ -521,6 +534,18 @@ h3 {
   background: rgba(243, 194, 107, 0.16);
   border-color: rgba(243, 194, 107, 0.45);
   color: #f3c26b;
+}
+
+.btn.nav {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(120, 90, 255, 0.18);
+  color: #9babc8;
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.25);
+}
+
+.btn.nav:hover:not(:disabled) {
+  color: #dfe7ff;
+  border-color: rgba(120, 90, 255, 0.3);
 }
 
 .btn.admin {

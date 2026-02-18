@@ -4,16 +4,23 @@
   --bg-900: #060915;
   --bg-800: #0a1020;
   --bg-700: #0d1327;
-  --panel: #0b1326;
-  --panel-strong: #0c172f;
-  --primary: #7c5bff;
-  --primary-strong: #00c6ff;
+  --panel: #050f2d;
+  --panel-strong: #08163a;
+  --panel-soft: #0a1a42;
+  --panel-ghost: rgba(9, 24, 60, 0.78);
+  --primary: #7f7bff;
+  --primary-strong: #35c2ff;
   --success: #9c7cfb;
   --warning: #8ad4ff;
-  --text: #e8eefc;
-  --muted: #8f9cb8;
-  --border: rgba(120, 90, 255, 0.25);
+  --text: #edf3ff;
+  --muted: #9db0d6;
+  --border: rgba(81, 128, 255, 0.52);
+  --border-soft: rgba(81, 128, 255, 0.28);
   --glow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  --panel-shadow:
+    0 16px 30px rgba(0, 0, 0, 0.36),
+    inset 0 0 0 1px rgba(145, 184, 255, 0.08);
+  --accent-gradient: linear-gradient(90deg, #7f7bff 0%, #35c2ff 100%);
 }
 
 *,
@@ -28,8 +35,8 @@ body {
   margin: 0;
   min-height: 100vh;
   color: var(--text);
-  background: radial-gradient(circle at 18% 20%, rgba(120, 90, 255, 0.12), transparent 30%),
-    radial-gradient(circle at 82% 12%, rgba(0, 198, 255, 0.12), transparent 32%),
+  background: radial-gradient(circle at 18% 20%, rgba(94, 130, 255, 0.15), transparent 30%),
+    radial-gradient(circle at 82% 12%, rgba(53, 194, 255, 0.14), transparent 32%),
     linear-gradient(180deg, var(--bg-800), var(--bg-900));
   line-height: 1.6;
   font-family: 'Sora', 'Space Grotesk', 'Segoe UI', system-ui, -apple-system, sans-serif;
@@ -70,4 +77,65 @@ body {
 /* Désactive le ::after global ajouté sur les labels */
 label::after {
   content: none !important;
+}
+
+/* Unifie les panneaux/cartes sur tout le dashboard (référence image 1) */
+.panel,
+.card,
+.wallet-guard,
+.wallet-row,
+.wallet-banner,
+.modal-card,
+.received-card,
+.form-card,
+.preview-card,
+.conversation-item,
+.bubble,
+.thread,
+.list {
+  background: linear-gradient(160deg, var(--panel) 0%, var(--panel-strong) 100%) !important;
+  border: 1px solid var(--border-soft) !important;
+  box-shadow: var(--panel-shadow) !important;
+}
+
+.wallet-row:hover,
+.card:hover,
+.panel:hover {
+  border-color: var(--border) !important;
+}
+
+.muted,
+.eyebrow,
+.preview,
+.time,
+.meta,
+.sub,
+.label {
+  color: var(--muted) !important;
+}
+
+.badge,
+.tag,
+.pill {
+  background: var(--panel-ghost) !important;
+  border: 1px solid var(--border-soft) !important;
+  color: var(--text) !important;
+}
+
+.primary-btn,
+.apply-btn,
+.send,
+.view-all,
+.wallet-guard-refresh {
+  background: var(--accent-gradient) !important;
+  border: 1px solid var(--border) !important;
+  color: #061227 !important;
+}
+
+.primary-btn:hover,
+.apply-btn:hover,
+.send:hover,
+.view-all:hover,
+.wallet-guard-refresh:hover {
+  filter: brightness(1.08);
 }
